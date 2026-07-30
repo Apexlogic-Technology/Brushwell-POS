@@ -5,7 +5,7 @@ import {
   BookOpen, Filter, Clock, FileText, ChevronLeft, ChevronRight,
   RotateCcw, FileSpreadsheet
 } from 'lucide-react';
-import { getSalesHistory, getLocalProducts } from '../services/n8nService';
+import { fetchOrders, fetchProducts } from '../services/supabaseService';
 import RefundModal from './RefundModal';
 import ZReportModal from './ZReportModal';
 
@@ -47,14 +47,22 @@ export default function Reports({ session, settings }) {
   const [isZReportOpen, setIsZReportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  const allSales = getSalesHistory();
-  const allProducts = getLocalProducts();
+  const [allSales, setAllSales] = useState([]);
+  const [allProducts, setAllProducts] = useState([]);
+
+  const loadReportData = React.useCallback(async () => {
+    const [orders, prods] = await Promise.all([fetchOrders({ limit: 1000 }), fetchProducts()]);
+    setAllSales(orders);
+    setAllProducts(prods);
+  }, []);
+
+  React.useEffect(() => { loadReportData(); }, [loadReportData, refreshTrigger]);
 
   // ── DAILY SALES REPORT ─────────────────────────────────────────────────────
   const dailySales = useMemo(() => {
     const { start, end } = getDateBounds('daily', dailyDate);
     return allSales.filter(s => {
-      const d = new Date(s.timestamp);
+      const d = new Date(s.created_at || s.timestamp);
       return d >= start && d < end;
     });
   }, [allSales, dailyDate, refreshTrigger]);
@@ -237,10 +245,10 @@ export default function Reports({ session, settings }) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-            <MetricCard icon={<DollarSign size={16} color="var(--accent-emerald)" />} bg="var(--accent-emerald-light)" label="Total Sales" value={`$${dailyRevenue.toFixed(2)}`} sub={`${dailyOrders} orders`} valueColor="var(--accent-emerald)" />
+            <MetricCard icon={<DollarSign size={16} color="var(--accent-emerald)" />} bg="var(--accent-emerald-light)" label="Total Sales" value={`GH₵${dailyRevenue.toFixed(2)}`} sub={`${dailyOrders} orders`} valueColor="var(--accent-emerald)" />
             <MetricCard icon={<BookOpen size={16} color="var(--primary)" />} bg="var(--primary-light)" label="Books Sold" value={dailyItemsSold} sub="total copies" valueColor="var(--primary)" />
-            <MetricCard icon={<DollarSign size={16} color="var(--accent-amber)" />} bg="var(--accent-amber-light)" label="Cash Received" value={`$${dailyCash.toFixed(2)}`} sub="cash payments" valueColor="var(--accent-amber)" />
-            <MetricCard icon={<ShoppingBag size={16} color="var(--accent-purple)" />} bg="hsla(265,83%,58%,0.12)" label="Card / Mobile" value={`$${(dailyCard + dailyMobile).toFixed(2)}`} sub="non-cash payments" valueColor="var(--accent-purple)" />
+            <MetricCard icon={<DollarSign size={16} color="var(--accent-amber)" />} bg="var(--accent-amber-light)" label="Cash Received" value={`GH₵${dailyCash.toFixed(2)}`} sub="cash payments" valueColor="var(--accent-amber)" />
+            <MetricCard icon={<ShoppingBag size={16} color="var(--accent-purple)" />} bg="hsla(265,83%,58%,0.12)" label="Card / Mobile" value={`GH₵${(dailyCard + dailyMobile).toFixed(2)}`} sub="non-cash payments" valueColor="var(--accent-purple)" />
           </div>
 
           {dailyOrders > 0 && (
@@ -261,8 +269,8 @@ export default function Reports({ session, settings }) {
                         transition: 'width 0.5s ease'
                       }} />
                     </div>
-                    <span style={{ fontWeight: 800, color: row.color, width: '60px', textAlign: 'right', flexShrink: 0 }}>
-                      ${row.amount.toFixed(2)}
+                    <span style={{ fontWeight: 800, color: row.color, width: '75px', textAlign: 'right', flexShrink: 0 }}>
+                      GH₵{row.amount.toFixed(2)}
                     </span>
                   </div>
                 ))}
@@ -294,7 +302,7 @@ export default function Reports({ session, settings }) {
                         )}
                       </div>
                       <span style={{ fontWeight: 800, fontSize: '1rem', color: sale.is_refund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                        ${sale.total.toFixed(2)}
+                        GH₵{sale.total.toFixed(2)}
                       </span>
                     </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>

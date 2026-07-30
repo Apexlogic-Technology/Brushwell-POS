@@ -1,62 +1,57 @@
-// Thermal Receipt Printer Engine (Web Bluetooth ESC/POS & Web Print)
+// ESC/POS Bluetooth Printer Engine & HTML Thermal Receipt Generator
 
 let bluetoothDevice = null;
 let gattServer = null;
-let printCharacteristic = null;
+let printerCharacteristic = null;
 
-// Common Bluetooth Printer Service UUIDs
-const PRINTER_SERVICES = [
-  '000018f0-0000-1000-8000-00805f9b34fb',
-  'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
-  '49535343-fe7d-41a3-ac56-7c062645429f',
-  '00001101-0000-1000-8000-00805f9b34fb'
-];
+// Thermal ESC/POS Constants
+const ESC = 0x1B;
+const GS = 0x1D;
 
-/**
- * Connect to Web Bluetooth ESC/POS Receipt Printer
- */
 export const connectBluetoothPrinter = async () => {
   if (!navigator.bluetooth) {
-    throw new Error('Web Bluetooth is not supported in this browser. Please use Google Chrome on Android, or Blueify/WebBLE on iOS.');
+    throw new Error('Web Bluetooth API is not supported in this browser. Please use Chrome on Android or a Bluetooth-enabled browser.');
   }
 
   try {
     bluetoothDevice = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: PRINTER_SERVICES
+      filters: [
+        { services: ['000018f0-0000-1000-8000-00805f9b34fb'] },
+        { services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] },
+        { services: ['0000ff00-0000-1000-8000-00805f9b34fb'] }
+      ],
+      optionalServices: [
+        '000018f0-0000-1000-8000-00805f9b34fb',
+        'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+        '0000ff00-0000-1000-8000-00805f9b34fb',
+        '0000180a-0000-1000-8000-00805f9b34fb'
+      ]
     });
 
     gattServer = await bluetoothDevice.gatt.connect();
 
-    // Discover write characteristic
+    // Find printer write characteristic
     const services = await gattServer.getPrimaryServices();
     for (const service of services) {
       const characteristics = await service.getCharacteristics();
       for (const char of characteristics) {
         if (char.properties.write || char.properties.writeWithoutResponse) {
-          printCharacteristic = char;
+          printerCharacteristic = char;
           break;
         }
       }
-      if (printCharacteristic) break;
+      if (printerCharacteristic) break;
     }
 
-    if (!printCharacteristic) {
-      throw new Error('No writable thermal printer characteristic found on device.');
+    if (!printerCharacteristic) {
+      throw new Error('Could not find a write characteristic on the paired Bluetooth printer.');
     }
 
-    return {
-      connected: true,
-      name: bluetoothDevice.name || 'Bluetooth Receipt Printer'
-    };
+    return { name: bluetoothDevice.name || 'Bluetooth Thermal Printer', status: 'connected' };
   } catch (err) {
-    console.error('Bluetooth printer connection error:', err);
+    console.error('Bluetooth printer error:', err);
     throw err;
   }
-};
-
-export const isBluetoothConnected = () => {
-  return gattServer && gattServer.connected && printCharacteristic !== null;
 };
 
 export const disconnectBluetoothPrinter = () => {
@@ -65,180 +60,220 @@ export const disconnectBluetoothPrinter = () => {
   }
   bluetoothDevice = null;
   gattServer = null;
-  printCharacteristic = null;
+  printerCharacteristic = null;
 };
 
-/**
- * Generate ESC/POS Bytes for Order
- */
-const buildEscPosBuffer = (order, settings) => {
+// Send ESC/POS payload in chunks to avoid BLE buffer overflow
+const writeEscPosChunked = async (dataArray) => {
+  if (!printerCharacteristic) {
+    throw new Error('Printer not connected. Please pair your Bluetooth printer in Settings.');
+  }
+
+  const CHUNK_SIZE = 20; // 20 bytes per BLE packet
+  const uint8 = new Uint8Array(dataArray);
+
+  for (let i = 0; i < uint8.length; i += CHUNK_SIZE) {
+    const chunk = uint8.slice(i, i + CHUNK_SIZE);
+    if (printerCharacteristic.properties.writeWithoutResponse) {
+      await printerCharacteristic.writeValueWithoutResponse(chunk);
+    } else {
+      await printerCharacteristic.writeValue(chunk);
+    }
+    // Small delay between packets
+    await new Promise(r => setTimeout(r, 20));
+  }
+};
+
+// Format and send Bluetooth Receipt
+export const printBluetoothReceipt = async (order, settings) => {
   const encoder = new TextEncoder();
   const buffer = [];
 
   const addBytes = (...bytes) => buffer.push(...bytes);
   const addText = (str) => {
     const encoded = encoder.encode(str);
-    encoded.forEach(b => buffer.push(b));
+    buffer.push(...encoded);
   };
 
-  const is80mm = settings.printer_paper_width === '80mm';
-  const widthChars = is80mm ? 48 : 32;
+  const symbol = settings.currency_symbol || 'GH₵';
 
-  // ESC @ - Initialize printer
-  addBytes(0x1B, 0x40);
+  // Initialize
+  addBytes(ESC, 0x40);
 
-  // Align Center
-  addBytes(0x1B, 0x61, 1);
-  // Double height text for header
-  addBytes(0x1D, 0x21, 0x11);
-  addText((settings.store_name || 'BRUSHWELL POS') + '\n');
-  
-  // Normal size
-  addBytes(0x1D, 0x21, 0x00);
-  addText('Mobile Point of Sale\n');
+  // Header Center
+  addBytes(ESC, 0x61, 1);
+  addBytes(ESC, 0x21, 0x20); // Double height/width
+  addText(`${settings.store_name || 'BRUSHWELL BOOKS'}\n`);
+  addBytes(ESC, 0x21, 0x00); // Reset font
+  addText('Bookshop Mobile POS\n');
   addText('--------------------------------\n');
 
-  // Align Left
-  addBytes(0x1B, 0x61, 0);
+  // Metadata Left
+  addBytes(ESC, 0x61, 0);
   addText(`Order #: ${order.order_id}\n`);
   addText(`Date: ${new Date(order.timestamp).toLocaleString()}\n`);
   addText(`Cashier: ${order.cashier_name || 'Main Cashier'}\n`);
   addText(`Price Mode: ${order.price_mode === 'wholesale' ? 'WHOLESALE TIER' : 'RETAIL'}\n`);
-  addText('='.repeat(widthChars) + '\n');
+  addText('--------------------------------\n');
 
-  // Table header
-  addText('Item                 Qty   Price\n');
-  addText('-'.repeat(widthChars) + '\n');
+  // Table Columns: Item (18) Qty (4) Total (10)
+  addText('Item               Qty     Total\n');
+  addText('--------------------------------\n');
 
   order.items.forEach(item => {
     let name = item.product_name;
-    if (name.length > 18) name = name.substring(0, 16) + '..';
+    if (name.length > 18) name = name.substring(0, 17) + '.';
     name = name.padEnd(18, ' ');
 
     const qty = String(item.quantity).padStart(4, ' ');
-    const price = ('$' + (item.price * item.quantity).toFixed(2)).padStart(8, ' ');
+    const price = (`${symbol}` + (item.price * item.quantity).toFixed(2)).padStart(10, ' ');
     addText(`${name}${qty}${price}\n`);
   });
 
-  addText('='.repeat(widthChars) + '\n');
+  addText('--------------------------------\n');
 
   // Totals - Align Right
-  addBytes(0x1B, 0x61, 2);
-  addBytes(0x1B, 0x45, 1); // Bold
-  addText(`Subtotal: $${order.subtotal.toFixed(2)}\n`);
+  addBytes(ESC, 0x61, 2);
+  addBytes(ESC, 0x1B, 0x45, 1); // Bold
+  addText(`Subtotal: ${symbol}${order.subtotal.toFixed(2)}\n`);
   if (order.discount > 0) {
-    addText(`Discount: -$${order.discount.toFixed(2)}\n`);
+    addText(`Discount: -${symbol}${order.discount.toFixed(2)}\n`);
   }
-  addText(`TOTAL: $${order.total.toFixed(2)}\n`);
-  addBytes(0x1B, 0x45, 0); // Bold Off
+  if (order.apply_tax && order.tax_breakdown && order.tax_breakdown.length > 0) {
+    order.tax_breakdown.forEach(t => {
+      addText(`${t.name} (${t.rate_pct}%): +${symbol}${t.amount.toFixed(2)}\n`);
+    });
+  } else if (order.apply_tax && order.tax_amount > 0) {
+    addText(`VAT/Tax: +${symbol}${order.tax_amount.toFixed(2)}\n`);
+  }
 
-  addText(`Payment (${order.payment_method}): $${(order.cash_given || order.total).toFixed(2)}\n`);
+  addText(`TOTAL: ${symbol}${order.total.toFixed(2)}\n`);
+  addBytes(ESC, 0x1B, 0x45, 0); // Bold Off
+
+  addText(`Payment (${order.payment_method}): ${symbol}${(order.cash_given || order.total).toFixed(2)}\n`);
   if (order.change_due > 0) {
-    addText(`Change: $${order.change_due.toFixed(2)}\n`);
+    addText(`Change: ${symbol}${order.change_due.toFixed(2)}\n`);
   }
 
   // Footer Center
-  addBytes(0x1B, 0x61, 1);
-  addText('\nThank you for shopping!\n');
-  addText('Powered by Brushwell POS & n8n\n\n\n');
+  addBytes(ESC, 0x61, 1);
+  addText('--------------------------------\n');
+  addText('Thank you for reading with us!\n');
+  addText('Brushwell Books System\n\n\n');
 
-  // Cut paper (GS V 66 0)
-  addBytes(0x1D, 0x56, 66, 0);
+  // Paper Cut
+  addBytes(GS, 0x56, 0x41, 0);
 
-  return new Uint8Array(buffer);
+  await writeEscPosChunked(buffer);
 };
 
-/**
- * Print Order to Bluetooth ESC/POS Printer
- */
-export const printBluetoothReceipt = async (order, settings) => {
-  if (!isBluetoothConnected()) {
-    const res = await connectBluetoothPrinter();
-    if (!res.connected) throw new Error('Bluetooth printer not connected');
-  }
-
-  const bytes = buildEscPosBuffer(order, settings);
-  
-  // Write in 512 byte chunks to prevent BLE buffer overflow
-  const chunkSize = 512;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.slice(i, i + chunkSize);
-    await printCharacteristic.writeValue(chunk);
-  }
-};
-
-/**
- * WiFi / System Web Print Handler (Renders printable HTML receipt)
- */
+// System / WiFi Printer via styled HTML pop-up window
 export const printSystemWebReceipt = (order, settings) => {
   const is80mm = settings.printer_paper_width === '80mm';
-  const widthPx = is80mm ? '300px' : '220px';
+  const widthPx = is80mm ? '300px' : '230px';
+  const symbol = settings.currency_symbol || 'GH₵';
 
-  let printContainer = document.getElementById('thermal-receipt-print');
-  if (!printContainer) {
-    printContainer = document.createElement('div');
-    printContainer.id = 'thermal-receipt-print';
-    document.body.appendChild(printContainer);
-  }
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
 
-  printContainer.innerHTML = `
-    <div style="width: ${widthPx}; font-family: monospace; font-size: 12px; padding: 5px; color: #000;">
-      <div style="text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 4px;">
-        ${settings.store_name || 'BRUSHWELL POS'}
-      </div>
-      <div style="text-align: center; font-size: 11px; margin-bottom: 8px;">
-        Mobile POS & Inventory System
-      </div>
-      <div style="border-bottom: 1px dashed #000; margin-bottom: 6px;"></div>
-      
-      <div>Order #: <strong>${order.order_id}</strong></div>
-      <div>Date: ${new Date(order.timestamp).toLocaleString()}</div>
-      <div>Cashier: ${order.cashier_name || 'Main Cashier'}</div>
-      <div>Tier: <strong>${order.price_mode === 'wholesale' ? 'WHOLESALE' : 'RETAIL'}</strong></div>
-      
-      <div style="border-bottom: 1px dashed #000; margin: 6px 0;"></div>
-      
-      <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-        <thead>
-          <tr style="border-bottom: 1px solid #000;">
-            <th style="text-align: left;">Item</th>
-            <th style="text-align: center;">Qty</th>
-            <th style="text-align: right;">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${order.items.map(item => `
-            <tr>
-              <td style="padding: 2px 0;">${item.product_name}</td>
-              <td style="text-align: center;">${item.quantity}</td>
-              <td style="text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Receipt ${order.order_id}</title>
+        <style>
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            margin: 0;
+            padding: 10px;
+            background: #fff;
+            color: #000;
+          }
+          .receipt {
+            width: ${widthPx};
+            margin: 0 auto;
+          }
+          .text-center { text-align: center; }
+          .text-right { text-align: right; }
+          .divider { border-top: 1px dashed #000; margin: 6px 0; }
+          .bold { font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          th { text-align: left; }
+        </style>
+      </head>
+      <body>
+        <div class="receipt">
+          <div class="text-center bold" style="font-size: 15px;">
+            ${settings.store_name || 'BRUSHWELL BOOKS'}
+          </div>
+          <div class="text-center" style="font-size: 10px; color: #444;">
+            Bookshop Mobile POS
+          </div>
+          <div class="divider"></div>
 
-      <div style="border-bottom: 1px dashed #000; margin: 6px 0;"></div>
+          <div>Order #: <strong>${order.order_id}</strong></div>
+          <div>Date: ${new Date(order.timestamp).toLocaleString()}</div>
+          <div>Cashier: ${order.cashier_name || 'Main Cashier'}</div>
+          <div>Tier: <strong>${order.price_mode === 'wholesale' ? 'WHOLESALE' : 'RETAIL'}</strong></div>
 
-      <div style="text-align: right; font-size: 12px;">
-        <div>Subtotal: $${order.subtotal.toFixed(2)}</div>
-        ${order.discount > 0 ? `<div>Discount: -$${order.discount.toFixed(2)}</div>` : ''}
-        <div style="font-size: 14px; font-weight: bold; margin-top: 4px;">
-          TOTAL: $${order.total.toFixed(2)}
+          <div class="divider"></div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th style="text-align: center;">Qty</th>
+                <th style="text-align: right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${order.items.map(item => `
+                <tr>
+                  <td style="padding: 2px 0;">${item.product_name}</td>
+                  <td style="text-align: center;">${item.quantity}</td>
+                  <td style="text-align: right;">${symbol}${(item.price * item.quantity).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="divider"></div>
+
+          <div class="text-right">
+            <div>Subtotal: ${symbol}${order.subtotal.toFixed(2)}</div>
+            ${order.discount > 0 ? `<div>Discount: -${symbol}${order.discount.toFixed(2)}</div>` : ''}
+            ${order.apply_tax && order.tax_breakdown && order.tax_breakdown.length > 0 ? (
+              order.tax_breakdown.map(t => `<div>${t.name} (${t.rate_pct}%): +${symbol}${t.amount.toFixed(2)}</div>`).join('')
+            ) : order.apply_tax && order.tax_amount > 0 ? `<div>VAT/Tax: +${symbol}${order.tax_amount.toFixed(2)}</div>` : ''}
+
+            <div style="font-size: 14px; font-weight: bold; margin-top: 4px;">
+              TOTAL: ${symbol}${order.total.toFixed(2)}
+            </div>
+            <div style="font-size: 11px; margin-top: 2px;">
+              Payment (${order.payment_method}): ${symbol}${(order.cash_given || order.total).toFixed(2)}
+            </div>
+            ${order.change_due > 0 ? `<div>Change Due: ${symbol}${order.change_due.toFixed(2)}</div>` : ''}
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="text-center" style="font-size: 10px; margin-top: 8px;">
+            Thank you for reading with us!<br/>
+            Brushwell Books System
+          </div>
         </div>
-        <div style="font-size: 11px; margin-top: 2px;">
-          Payment (${order.payment_method}): $${(order.cash_given || order.total).toFixed(2)}
-        </div>
-        ${order.change_due > 0 ? `<div>Change Due: $${order.change_due.toFixed(2)}</div>` : ''}
-      </div>
 
-      <div style="border-bottom: 1px dashed #000; margin: 8px 0;"></div>
-
-      <div style="text-align: center; font-size: 11px;">
-        Thank you for your business!<br/>
-        Synced with PostgreSQL & n8n
-      </div>
-    </div>
+        <script>
+          setTimeout(() => {
+            window.print();
+            window.close();
+          }, 300);
+        </script>
+      </body>
+    </html>
   `;
 
-  window.print();
+  printWindow.document.write(html);
+  printWindow.document.close();
 };

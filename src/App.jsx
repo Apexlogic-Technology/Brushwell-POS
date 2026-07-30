@@ -15,16 +15,30 @@ import StockReceivingModal from './components/StockReceivingModal';
 import OrderHistoryModal from './components/OrderHistoryModal';
 import RefundModal from './components/RefundModal';
 
-import { fetchProducts, getSettings, getCategories } from './services/n8nService';
+import { fetchProducts, getSettings } from './services/supabaseService';
+
+// Ghana Education System book categories (mirrors ProductManagement.jsx DEFAULT_CATEGORIES)
+const GH_BOOK_CATEGORIES = [
+  { id: 'cat-gh-1',  name: 'Crèche & Nursery (KG 1 - 2)' },
+  { id: 'cat-gh-2',  name: 'Primary School (Class 1 - 6)' },
+  { id: 'cat-gh-3',  name: 'Junior High School (JHS 1 - 3 / BECE)' },
+  { id: 'cat-gh-4',  name: 'SHS Core Subjects (English, Maths, Science, Social)' },
+  { id: 'cat-gh-5',  name: 'SHS Science & Elective Mathematics' },
+  { id: 'cat-gh-6',  name: 'SHS General Arts & Literature' },
+  { id: 'cat-gh-7',  name: 'SHS Business, Accounting & Economics' },
+  { id: 'cat-gh-8',  name: 'SHS Visual Arts, Home Econ & Technical' },
+  { id: 'cat-gh-9',  name: 'BECE & WASSCE Past Questions (Pasco)' },
+  { id: 'cat-gh-10', name: 'Children Storybooks & Ghanaian Languages' },
+  { id: 'cat-gh-11', name: 'Stationery & School Supplies' }
+];
 import { getSession, logout, updateSessionActivity, ROLES } from './services/authService';
-import { ShoppingBag, Package, BarChart2, Users } from 'lucide-react';
+import { ShoppingBag, Package, BarChart2, Users, Settings, Clock, LogOut, Sun, Moon } from 'lucide-react';
 
 export default function App() {
   const [theme, setTheme] = useState(localStorage.getItem('brushwell_theme') || 'light');
   const [session, setSession] = useState(getSession());
   const [activeTab, setActiveTab] = useState('sell');
   const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [settings, setSettings] = useState(getSettings());
   const [cart, setCart] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,12 +89,8 @@ export default function App() {
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
-    const [prods, cats] = await Promise.all([
-      fetchProducts(),
-      Promise.resolve(getCategories())
-    ]);
+    const prods = await fetchProducts();
     setProducts(prods);
-    setCategories(cats);
     setIsLoading(false);
   }, []);
 
@@ -183,7 +193,7 @@ export default function App() {
         <div style={{ textAlign: 'center' }}>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Brushwell Books</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-            {settings.use_mock_mode ? 'Loading book catalogue...' : 'Syncing with PostgreSQL via n8n...'}
+            Loading...
           </p>
         </div>
         <div style={{ width: '200px', height: '4px', background: 'var(--border-light)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
@@ -202,25 +212,156 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <Header
-        settings={settings}
-        onOpenSettings={() => isAdmin && setIsSettingsOpen(true)}
-        onOpenScanner={() => setIsScannerOpen(true)}
-        onOpenOrderHistory={() => setIsOrderHistoryOpen(true)}
-        theme={theme}
-        onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-        cartCount={cart.reduce((a, b) => a + b.quantity, 0)}
-        onOpenCart={() => setActiveTab('sell')}
-        session={session}
-        onLogout={handleLogout}
-        isAdmin={isAdmin}
-      />
+      {/* Mobile-Only Header */}
+      <div className="mobile-only-header" style={{ position: 'sticky', top: 0, zIndex: 90 }}>
+        <Header
+          settings={settings}
+          onOpenSettings={() => isAdmin && setIsSettingsOpen(true)}
+          onOpenScanner={() => setIsScannerOpen(true)}
+          onOpenOrderHistory={() => setIsOrderHistoryOpen(true)}
+          theme={theme}
+          onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+          cartCount={cart.reduce((a, b) => a + b.quantity, 0)}
+          onOpenCart={() => setActiveTab('sell')}
+          session={session}
+          onLogout={handleLogout}
+          isAdmin={isAdmin}
+        />
+      </div>
+
+      {/* Desktop Left Sidebar (visible on screens >= 900px) */}
+      <aside className="desktop-sidebar">
+        {/* Top: Brand & Cashier Badge */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <div style={{
+              width: '40px', height: '40px',
+              borderRadius: 'var(--radius-md)',
+              background: 'linear-gradient(135deg, var(--primary), var(--accent-purple))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', boxShadow: '0 4px 12px var(--primary-glow)',
+              flexShrink: 0
+            }}>
+              <ShoppingBag size={22} />
+            </div>
+            <div>
+              <h1 style={{ fontSize: '1rem', fontWeight: 800, lineHeight: 1.1 }}>
+                {settings.store_name || 'Brushwell Books'}
+              </h1>
+              {session && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '2px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-emerald)' }} />
+                  {session.name} ({session.role})
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Navigation Links */}
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.5rem' }}>
+            {TABS.map(tab => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  className={`desktop-nav-link ${isActive ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab.key)}
+                >
+                  <Icon size={19} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Bottom: Quick Actions & Logout */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border-light)' }}>
+          <button
+            type="button"
+            className="desktop-nav-link"
+            onClick={() => setIsOrderHistoryOpen(true)}
+            title="Recent Orders & Sales Log"
+          >
+            <Clock size={18} />
+            <span>Order History</span>
+          </button>
+
+          {isAdmin && (
+            <button
+              type="button"
+              className="desktop-nav-link"
+              onClick={() => setIsStockReceiveOpen(true)}
+              title="Receive & Restock Inventory"
+            >
+              <Package size={18} />
+              <span>Restock Stock</span>
+            </button>
+          )}
+
+          {isAdmin && (
+            <button
+              type="button"
+              className="desktop-nav-link"
+              onClick={() => setIsSettingsOpen(true)}
+              title="Store & Database Settings"
+            >
+              <Settings size={18} />
+              <span>POS Settings</span>
+            </button>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+              style={{
+                background: 'var(--bg-surface-elevated)',
+                border: '1px solid var(--border-light)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.45rem 0.75rem',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: 'var(--text-main)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+            >
+              {theme === 'dark' ? <Sun size={15} color="var(--accent-amber)" /> : <Moon size={15} color="var(--primary)" />}
+              {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              style={{
+                background: 'var(--accent-rose-light)',
+                color: 'var(--accent-rose)',
+                border: 'none',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.45rem 0.75rem',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem'
+              }}
+            >
+              <LogOut size={15} /> Logout
+            </button>
+          </div>
+        </div>
+      </aside>
 
       <div className="main-content">
         {activeTab === 'sell' && (
           <SellingInterface
             products={products}
-            categories={categories}
+            categories={GH_BOOK_CATEGORIES}
             cart={cart}
             setCart={setCart}
             settings={{ ...settings, cashier_name: session.name }}
@@ -231,7 +372,7 @@ export default function App() {
         {activeTab === 'products' && (
           <ProductManagement
             products={products}
-            categories={categories}
+            categories={GH_BOOK_CATEGORIES}
             onRefreshProducts={loadData}
             onOpenBarcodeGen={openBarcodeGen}
             isAdmin={isAdmin}
@@ -246,7 +387,7 @@ export default function App() {
         )}
       </div>
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation (Mobile Only) */}
       <nav className="bottom-nav">
         {TABS.map(tab => {
           const Icon = tab.icon;

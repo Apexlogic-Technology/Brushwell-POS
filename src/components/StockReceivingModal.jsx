@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, PackagePlus, Search, Check, RefreshCw, Plus, Trash2, ArrowUpRight } from 'lucide-react';
-import { receiveStock } from '../services/n8nService';
+import { receiveStock } from '../services/supabaseService';
 
 export default function StockReceivingModal({ isOpen, onClose, products, onRefreshProducts }) {
   const [searchQuery, setSearchQuery] = useState('');

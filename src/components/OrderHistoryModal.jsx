@@ -1,31 +1,36 @@
 import React, { useState } from 'react';
 import { X, Search, Clock, Printer, RotateCcw, FileText, CheckCircle2, ChevronRight } from 'lucide-react';
-import { getSalesHistory } from '../services/n8nService';
+import { fetchOrders } from '../services/supabaseService';
 
 export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrder, onSelectRefundOrder, isAdmin }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterPeriod, setFilterPeriod] = useState('all'); // 'today', 'week', 'all'
+  const [filterPeriod, setFilterPeriod] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [sales, setSales] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    setLoading(true);
+    fetchOrders({ limit: 200 }).then(data => { setSales(data); setLoading(false); });
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const sales = getSalesHistory();
-
   const filteredSales = sales.filter(s => {
-    const matchesSearch = s.order_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    const matchesSearch = (s.order_id||'').toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (s.cashier_name && s.cashier_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                          (s.items && s.items.some(i => i.product_name.toLowerCase().includes(searchQuery.toLowerCase())));
-
+                          (s.items && s.items.some(i => (i.product_name||'').toLowerCase().includes(searchQuery.toLowerCase())));
     if (!matchesSearch) return false;
 
+    const ts = s.created_at || s.timestamp;
     if (filterPeriod === 'today') {
       const todayStr = new Date().toISOString().split('T')[0];
-      return s.timestamp && s.timestamp.startsWith(todayStr);
+      return ts && ts.startsWith(todayStr);
     }
     if (filterPeriod === 'week') {
-      const now = new Date();
-      const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-      return new Date(s.timestamp) >= weekStart;
+      const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7);
+      return new Date(ts) >= weekStart;
     }
 
     return true;
@@ -143,7 +148,7 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                         fontSize: '1.05rem',
                         color: isRefund ? 'var(--accent-rose)' : 'var(--accent-emerald)'
                       }}>
-                        ${order.total.toFixed(2)}
+                        GH₵{order.total.toFixed(2)}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)' }}>
                         {order.items.reduce((a, b) => a + b.quantity, 0)} books
@@ -167,15 +172,15 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                       {order.items.map((item, idx) => (
                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
                           <span>{item.product_name} × {item.quantity}</span>
-                          <span style={{ fontWeight: 700 }}>${(item.price * item.quantity).toFixed(2)}</span>
+                          <span style={{ fontWeight: 700 }}>GH₵{(item.price * item.quantity).toFixed(2)}</span>
                         </div>
                       ))}
 
                       {/* Tax & Discount Breakdown if applied */}
                       {(order.discount > 0 || order.apply_tax) && (
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-subtle)', borderTop: '1px dotted var(--border-subtle)', paddingTop: '4px', marginTop: '2px' }}>
-                          {order.discount > 0 && <div>Discount: -${order.discount.toFixed(2)}</div>}
-                          {order.apply_tax && <div>VAT ({order.tax_rate_pct}%): +${order.tax_amount.toFixed(2)}</div>}
+                          {order.discount > 0 && <div>Discount: -GH₵{order.discount.toFixed(2)}</div>}
+                          {order.apply_tax && <div>VAT ({order.tax_rate_pct}%): +GH₵{order.tax_amount.toFixed(2)}</div>}
                         </div>
                       )}
 

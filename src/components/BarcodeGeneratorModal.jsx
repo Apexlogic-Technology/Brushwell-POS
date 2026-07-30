@@ -49,7 +49,7 @@ export default function BarcodeGeneratorModal({ isOpen, onClose, product }) {
           <div class="label-box">
             <div class="name">${product.product_name}</div>
             <svg id="print-barcode"></svg>
-            <div class="price">$${product.retail_price.toFixed(2)}</div>
+            <div class="price">GH₵${product.retail_price.toFixed(2)}</div>
           </div>
           <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
           <script>

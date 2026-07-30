@@ -1,127 +1,190 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
-import { X, Volume2, VolumeX, Flashlight, RefreshCw, CheckCircle2, AlertCircle, Barcode as BarcodeIcon } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { X, Volume2, VolumeX, RefreshCw, CheckCircle2, AlertCircle, Barcode as BarcodeIcon } from 'lucide-react';
 
-export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, products }) {
-  const [manualCode, setManualCode] = useState('');
+// All barcode formats supported by html5-qrcode
+const ALL_BARCODE_FORMATS = [
+  Html5QrcodeSupportedFormats.QR_CODE,
+  Html5QrcodeSupportedFormats.AZTEC,
+  Html5QrcodeSupportedFormats.CODABAR,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.DATA_MATRIX,
+  Html5QrcodeSupportedFormats.ITF,
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.PDF_417,
+  Html5QrcodeSupportedFormats.RSS_14,
+  Html5QrcodeSupportedFormats.RSS_EXPANDED,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+];
+
+const SCANNER_REGION_ID = 'brushwell-barcode-region';
+
+export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, products = [] }) {
+  const [manualCode, setManualCode]         = useState('');
   const [continuousMode, setContinuousMode] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [lastScanned, setLastScanned] = useState(null);
-  const [scanError, setScanError] = useState(null);
-  const [isScanning, setIsScanning] = useState(false);
+  const [soundEnabled, setSoundEnabled]     = useState(true);
+  const [lastScanned, setLastScanned]       = useState(null);
+  const [scanError, setScanError]           = useState(null);
+  const [isScanning, setIsScanning]         = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
 
-  const html5QrcodeRef = useRef(null);
-  const scannerRegionId = 'interactive-camera-preview';
+  const scannerRef       = useRef(null);
+  const lastScanTimeRef  = useRef(0);
+  const isMountedRef     = useRef(false);
+  const soundEnabledRef  = useRef(soundEnabled);
 
-  // Web Audio API Beep Generator
-  const playBeep = () => {
-    if (!soundEnabled) return;
+  // Keep sound ref in sync
+  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+
+  const playBeep = useCallback(() => {
+    if (!soundEnabledRef.current) return;
     try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime); // 880Hz pitch
-      gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(1047, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(ctx.destination);
       osc.start();
-      osc.stop(audioCtx.currentTime + 0.15);
-    } catch (e) {
-      console.error(e);
-    }
-  };
+      osc.stop(ctx.currentTime + 0.15);
+    } catch (e) { /* ignore */ }
+  }, []);
 
-  useEffect(() => {
-    if (!isOpen) {
-      stopScanner();
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      startScanner();
-    }, 300);
-
-    return () => {
-      clearTimeout(timer);
-      stopScanner();
-    };
-  }, [isOpen]);
-
-  const startScanner = async () => {
+  const stopScanner = useCallback(async () => {
+    const instance = scannerRef.current;
+    if (!instance) return;
+    scannerRef.current = null;
     try {
-      if (html5QrcodeRef.current && html5QrcodeRef.current.isScanning) {
+      if (instance.isScanning) {
+        await instance.stop();
+      }
+    } catch (e) { /* ignore stop errors */ }
+    try { instance.clear(); } catch (e) { /* ignore clear errors */ }
+    if (isMountedRef.current) {
+      setIsScanning(false);
+      setIsInitializing(false);
+    }
+  }, []);
+
+  const startScanner = useCallback(async () => {
+    if (!isMountedRef.current) return;
+
+    // If already running, bail out
+    if (scannerRef.current && scannerRef.current.isScanning) return;
+
+    // Ensure any stale instance is cleared first
+    if (scannerRef.current) {
+      try { await scannerRef.current.stop(); } catch (e) { /* ignore */ }
+      try { scannerRef.current.clear(); } catch (e) { /* ignore */ }
+      scannerRef.current = null;
+    }
+
+    // Wait for the DOM element to exist
+    await new Promise(r => setTimeout(r, 300));
+    if (!isMountedRef.current) return;
+
+    const regionEl = document.getElementById(SCANNER_REGION_ID);
+    if (!regionEl) return;
+
+    setIsInitializing(true);
+    setScanError(null);
+
+    const instance = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+    scannerRef.current = instance;
+
+    const config = {
+      fps: 15,
+      qrbox: { width: 280, height: 140 },
+      formatsToSupport: ALL_BARCODE_FORMATS,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      aspectRatio: 1.5,
+    };
+
+    const onSuccess = (text) => {
+      if (!isMountedRef.current) return;
+      const trimmed = text.trim();
+      const now = Date.now();
+      if (!trimmed || now - lastScanTimeRef.current < 1500) return;
+      lastScanTimeRef.current = now;
+
+      playBeep();
+
+      const match = (Array.isArray(products) ? products : [])
+        .filter(Boolean)
+        .find(p => p.barcode === trimmed);
+
+      setLastScanned({ code: trimmed, product: match, time: new Date().toLocaleTimeString() });
+
+      if (onScanSuccess) onScanSuccess(trimmed, match);
+      if (!continuousMode) onClose();
+    };
+
+    try {
+      await instance.start({ facingMode: 'environment' }, config, onSuccess, () => {});
+    } catch (err1) {
+      try {
+        await instance.start({ facingMode: 'user' }, config, onSuccess, () => {});
+      } catch (err2) {
+        if (isMountedRef.current) {
+          scannerRef.current = null;
+          setIsInitializing(false);
+          setScanError('Camera unavailable or permission denied. Use the manual entry below.');
+        }
         return;
       }
+    }
 
-      const html5Qrcode = new Html5Qrcode(scannerRegionId);
-      html5QrcodeRef.current = html5Qrcode;
-
-      const config = {
-        fps: 15,
-        qrbox: { width: 250, height: 160 },
-        aspectRatio: 1.0
-      };
-
-      await html5Qrcode.start(
-        { facingMode: 'environment' }, // Rear camera
-        config,
-        (decodedText) => {
-          handleDecodedBarcode(decodedText);
-        },
-        (errorMessage) => {
-          // ignore transient scan frame errors
-        }
-      );
+    if (isMountedRef.current) {
       setIsScanning(true);
+      setIsInitializing(false);
       setScanError(null);
-    } catch (err) {
-      console.warn('Camera start error:', err);
-      setIsScanning(false);
-      setScanError('Camera permission denied or camera unavailable. You can enter the barcode manually below.');
     }
-  };
+  }, [products, continuousMode, onClose, onScanSuccess, playBeep]);
 
-  const stopScanner = async () => {
-    if (html5QrcodeRef.current) {
-      try {
-        if (html5QrcodeRef.current.isScanning) {
-          await html5QrcodeRef.current.stop();
-        }
-        html5QrcodeRef.current.clear();
-      } catch (e) {
-        console.error('Stop scanner error:', e);
-      }
-      html5QrcodeRef.current = null;
-      setIsScanning(false);
+  // Lifecycle: mount/unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Open/close effect
+  useEffect(() => {
+    if (isOpen) {
+      setLastScanned(null);
+      setScanError(null);
+      setManualCode('');
+      const timer = setTimeout(() => {
+        if (isMountedRef.current) startScanner();
+      }, 400);
+      return () => {
+        clearTimeout(timer);
+        stopScanner();
+      };
+    } else {
+      stopScanner();
     }
-  };
-
-  const handleDecodedBarcode = (code) => {
-    const trimmed = code.trim();
-    playBeep();
-
-    // Check if barcode matches any product
-    const matchedProduct = products.find(p => p.barcode === trimmed);
-
-    setLastScanned({
-      code: trimmed,
-      product: matchedProduct,
-      time: new Date().toLocaleTimeString()
-    });
-
-    onScanSuccess(trimmed, matchedProduct);
-
-    if (!continuousMode) {
-      onClose();
-    }
-  };
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleManualSubmit = (e) => {
     e.preventDefault();
     if (!manualCode.trim()) return;
-    handleDecodedBarcode(manualCode.trim());
+    const trimmed = manualCode.trim();
+    const match = (Array.isArray(products) ? products : [])
+      .filter(Boolean)
+      .find(p => p.barcode === trimmed);
+    setLastScanned({ code: trimmed, product: match, time: new Date().toLocaleTimeString() });
+    if (onScanSuccess) onScanSuccess(trimmed, match);
     setManualCode('');
+    if (!continuousMode) onClose();
   };
 
   if (!isOpen) return null;
@@ -129,21 +192,40 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+
+        {/* Inject CSS to suppress the html5-qrcode canvas overlays (white markers) */}
+        <style>{`
+          #${SCANNER_REGION_ID} canvas { display: none !important; }
+          #${SCANNER_REGION_ID} video  { 
+            width: 100% !important; 
+            height: 100% !important; 
+            object-fit: cover !important; 
+            border-radius: 8px;
+          }
+          #${SCANNER_REGION_ID} img    { display: none !important; }
+          #${SCANNER_REGION_ID} > div  { 
+            border: none !important; 
+            box-shadow: none !important;
+            background: transparent !important;
+          }
+          #${SCANNER_REGION_ID} > div > div { display: none !important; }
+        `}</style>
+
         {/* Header */}
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <BarcodeIcon size={20} color="var(--primary)" />
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Barcode Reader</h3>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Barcode & ISBN Scanner</h3>
           </div>
-          <button className="btn-icon" onClick={onClose}>
+          <button type="button" className="btn-icon" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
 
         {/* Body */}
         <div className="modal-body" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          
-          {/* Scanner Controls Bar */}
+
+          {/* Controls Bar */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -153,90 +235,154 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
             borderRadius: 'var(--radius-md)',
             border: '1px solid var(--border-light)'
           }}>
-            {/* Continuous Mode Toggle */}
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
-              <input 
-                type="checkbox" 
-                checked={continuousMode} 
-                onChange={e => setContinuousMode(e.target.checked)} 
+              <input
+                type="checkbox"
+                checked={continuousMode}
+                onChange={e => setContinuousMode(e.target.checked)}
                 style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
               />
               Continuous Auto-Scan
             </label>
 
-            {/* Sound Toggle */}
-            <button 
-              className="btn-icon" 
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              style={{ width: '32px', height: '32px' }}
-              title="Toggle Sound Beep"
-            >
-              {soundEnabled ? <Volume2 size={16} color="var(--primary)" /> : <VolumeX size={16} />}
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setSoundEnabled(s => !s)}
+                style={{ width: '32px', height: '32px' }}
+                title="Toggle Beep Sound"
+              >
+                {soundEnabled ? <Volume2 size={16} color="var(--primary)" /> : <VolumeX size={16} />}
+              </button>
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => { stopScanner().then(() => startScanner()); }}
+                style={{ width: '32px', height: '32px' }}
+                title="Restart Camera"
+              >
+                <RefreshCw size={15} />
+              </button>
+            </div>
           </div>
 
-          {/* Camera Feed Container */}
+          {/* Camera Viewfinder */}
           <div style={{
             position: 'relative',
             width: '100%',
-            height: '240px',
+            height: '260px',
             borderRadius: 'var(--radius-lg)',
             overflow: 'hidden',
-            background: '#000',
+            background: '#111',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            <div id={scannerRegionId} style={{ width: '100%', height: '100%' }}></div>
+            {/* Scanner region — always rendered so the DOM element exists */}
+            <div
+              id={SCANNER_REGION_ID}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+            />
 
-            {/* Scanner Overlay Visual Target */}
-            {isScanning && (
-              <div style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                width: '75%',
-                height: '55%',
-                border: '2px dashed var(--accent-emerald)',
-                borderRadius: 'var(--radius-md)',
-                pointerEvents: 'none',
-                boxShadow: '0 0 0 4000px rgba(0, 0, 0, 0.45)',
-                animation: 'pulseGlow 1.8s infinite'
-              }}>
-                <div style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '10%',
-                  right: '10%',
-                  height: '2px',
-                  background: 'var(--accent-rose)',
-                  boxShadow: '0 0 8px var(--accent-rose)'
-                }}></div>
-              </div>
-            )}
-
-            {/* Camera Error Message */}
-            {scanError && (
+            {/* Clean scan-area overlay — only visible when scanning */}
+            {isScanning && !scanError && (
               <div style={{
                 position: 'absolute',
                 inset: 0,
-                background: 'rgba(15, 23, 42, 0.95)',
-                padding: '1.5rem',
+                pointerEvents: 'none',
                 display: 'flex',
-                flexDirection: 'column',
                 alignItems: 'center',
-                justifyContent: 'center',
-                textAlign: 'center',
-                color: 'var(--text-muted)'
+                justifyContent: 'center'
+              }}>
+                {/* Dark vignette without left/right white lines */}
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'linear-gradient(to right, rgba(0,0,0,0.5) 0%, transparent 20%, transparent 80%, rgba(0,0,0,0.5) 100%)'
+                }} />
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 25%, transparent 75%, rgba(0,0,0,0.5) 100%)'
+                }} />
+
+                {/* Target box */}
+                <div style={{
+                  position: 'relative',
+                  width: '78%',
+                  height: '48%',
+                  border: '2px solid rgba(52, 211, 153, 0.85)',
+                  borderRadius: '8px',
+                  boxShadow: '0 0 0 1px rgba(52,211,153,0.2), inset 0 0 20px rgba(52,211,153,0.05)'
+                }}>
+                  {/* Corner accents */}
+                  {[
+                    { top: -2, left: -2, borderTop: '3px solid #34d399', borderLeft: '3px solid #34d399' },
+                    { top: -2, right: -2, borderTop: '3px solid #34d399', borderRight: '3px solid #34d399' },
+                    { bottom: -2, left: -2, borderBottom: '3px solid #34d399', borderLeft: '3px solid #34d399' },
+                    { bottom: -2, right: -2, borderBottom: '3px solid #34d399', borderRight: '3px solid #34d399' },
+                  ].map((s, i) => (
+                    <div key={i} style={{ position: 'absolute', width: '18px', height: '18px', borderRadius: '2px', ...s }} />
+                  ))}
+
+                  {/* Animated scan line */}
+                  <div style={{
+                    position: 'absolute',
+                    left: '5%',
+                    right: '5%',
+                    height: '2px',
+                    background: 'linear-gradient(90deg, transparent, #f43f5e, transparent)',
+                    boxShadow: '0 0 8px #f43f5e',
+                    animation: 'scanLine 1.8s ease-in-out infinite'
+                  }} />
+                </div>
+              </div>
+            )}
+
+            {/* Initializing spinner */}
+            {isInitializing && !scanError && (
+              <div style={{
+                position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '0.5rem',
+                background: 'rgba(0,0,0,0.7)'
+              }}>
+                <div style={{
+                  width: '36px', height: '36px', border: '3px solid rgba(255,255,255,0.2)',
+                  borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite'
+                }} />
+                <span style={{ fontSize: '0.82rem', opacity: 0.8 }}>Starting camera…</span>
+              </div>
+            )}
+
+            {/* Error overlay */}
+            {scanError && (
+              <div style={{
+                position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.95)',
+                padding: '1.5rem', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-muted)'
               }}>
                 <AlertCircle size={36} color="var(--accent-amber)" style={{ marginBottom: '0.5rem' }} />
-                <p style={{ fontSize: '0.85rem' }}>{scanError}</p>
+                <p style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>{scanError}</p>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => startScanner()}
+                  style={{ fontSize: '0.78rem' }}
+                >
+                  <RefreshCw size={14} /> Retry Camera
+                </button>
               </div>
             )}
           </div>
 
-          {/* Last Scanned Feedback Banner */}
+          {/* Keyframe styles */}
+          <style>{`
+            @keyframes scanLine { 0%,100% { top:8%; } 50% { top:88%; } }
+            @keyframes spin { to { transform: rotate(360deg); } }
+          `}</style>
+
+          {/* Last Scanned Result */}
           {lastScanned && (
             <div style={{
               background: lastScanned.product ? 'var(--accent-emerald-light)' : 'var(--accent-amber-light)',
@@ -246,37 +392,43 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              animation: 'fadeIn 0.2s ease-out'
+              gap: '0.5rem'
             }}>
               <div>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: lastScanned.product ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
-                  {lastScanned.product ? '✓ PRODUCT ADDED TO CART' : '⚠️ UNREGISTERED BARCODE'}
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: lastScanned.product ? 'var(--accent-emerald)' : 'var(--accent-amber)', textTransform: 'uppercase', marginBottom: '2px' }}>
+                  {lastScanned.product ? '✓ Matched in catalogue' : '⚠ Not found in catalogue'}
                 </div>
                 <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>
-                  {lastScanned.product ? lastScanned.product.product_name : `Code: ${lastScanned.code}`}
+                  {lastScanned.product ? lastScanned.product.product_name : `Barcode: ${lastScanned.code}`}
                 </div>
                 {lastScanned.product && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    ${lastScanned.product.retail_price.toFixed(2)} • Stock: {lastScanned.product.stock_quantity}
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '1px' }}>
+                    GH₵ {parseFloat(lastScanned.product.retail_price || 0).toFixed(2)} • Stock: {lastScanned.product.stock_quantity}
+                  </div>
+                )}
+                {!lastScanned.product && (
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '1px' }}>
+                    Code: {lastScanned.code}
                   </div>
                 )}
               </div>
-              <CheckCircle2 size={24} color={lastScanned.product ? 'var(--accent-emerald)' : 'var(--accent-amber)'} />
+              <CheckCircle2 size={26} color={lastScanned.product ? 'var(--accent-emerald)' : 'var(--accent-amber)'} />
             </div>
           )}
 
-          {/* Manual Barcode Input Fallback */}
+          {/* Manual Entry */}
           <form onSubmit={handleManualSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
             <input
               type="text"
               className="form-control"
-              placeholder="Or type/paste barcode (e.g. 890123456789)"
+              inputMode="numeric"
+              placeholder="Or type / paste barcode / ISBN manually"
               value={manualCode}
               onChange={e => setManualCode(e.target.value)}
-              style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}
             />
-            <button type="submit" className="btn-primary" style={{ whiteSpace: 'nowrap' }}>
-              Add Item
+            <button type="submit" className="btn-primary" style={{ whiteSpace: 'nowrap', fontSize: '0.82rem' }}>
+              Submit
             </button>
           </form>
 

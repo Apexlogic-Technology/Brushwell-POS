@@ -6,7 +6,7 @@ import {
 import { getUsers, createUser, updateUser, deleteUser, ROLES } from '../services/authService';
 
 export default function UserManagement({ currentSession }) {
-  const [users, setUsers] = useState(getUsers());
+  const [users, setUsers] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -14,14 +14,19 @@ export default function UserManagement({ currentSession }) {
   const [showPin, setShowPin] = useState(false);
   const [formError, setFormError] = useState('');
 
+  const refreshUsers = React.useCallback(async () => {
+    const u = await getUsers();
+    setUsers(u);
+  }, []);
+
+  React.useEffect(() => { refreshUsers(); }, [refreshUsers]);
+
   const [form, setForm] = useState({
     name: '',
     username: '',
     role: ROLES.ATTENDANT,
     pin: '1234'
   });
-
-  const refreshUsers = () => setUsers(getUsers());
 
   const openModal = (user = null) => {
     setFormError('');
@@ -52,16 +57,16 @@ export default function UserManagement({ currentSession }) {
     setIsSubmitting(true);
     try {
       if (editingUser) {
-        updateUser(editingUser.id, {
+        await updateUser(editingUser.id, {
           name: form.name.trim(),
           username: form.username.trim().toLowerCase(),
           role: form.role,
           pin: form.pin
         });
       } else {
-        createUser(form);
+        await createUser(form);
       }
-      refreshUsers();
+      await refreshUsers();
       setIsModalOpen(false);
     } catch (err) {
       setFormError(err.message);
@@ -70,19 +75,19 @@ export default function UserManagement({ currentSession }) {
     }
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     try {
-      deleteUser(id);
+      await deleteUser(id);
       setDeleteConfirmId(null);
-      refreshUsers();
+      await refreshUsers();
     } catch (err) {
       alert(err.message);
     }
   };
 
-  const handleToggleActive = (user) => {
-    updateUser(user.id, { active: !user.active });
-    refreshUsers();
+  const handleToggleActive = async (user) => {
+    await updateUser(user.id, { active: !user.active });
+    await refreshUsers();
   };
 
   const adminCount = users.filter(u => u.role === ROLES.ADMIN).length;
@@ -106,26 +111,6 @@ export default function UserManagement({ currentSession }) {
         </button>
       </div>
 
-      {/* Info Banner */}
-      <div style={{
-        background: 'var(--primary-light)',
-        border: '1px solid var(--primary)',
-        borderRadius: 'var(--radius-md)',
-        padding: '0.7rem 0.9rem',
-        fontSize: '0.8rem',
-        color: 'var(--primary)',
-        fontWeight: 600,
-        display: 'flex',
-        gap: '0.5rem',
-        alignItems: 'flex-start'
-      }}>
-        <Shield size={15} style={{ marginTop: '1px', flexShrink: 0 }} />
-        <div>
-          <strong>Role Permissions:</strong>
-          &nbsp;<strong>Admin</strong> — full access (Sell, Products, Reports, Settings, Users).
-          &nbsp;<strong>Attendant</strong> — Sell + Add new books only. No reports, settings or delete access.
-        </div>
-      </div>
 
       {/* User List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', flex: 1, overflowY: 'auto' }}>

@@ -1,23 +1,29 @@
 import React from 'react';
 import { X, Printer, FileText, Check } from 'lucide-react';
-import { getSalesHistory } from '../services/n8nService';
+import { fetchOrders } from '../services/supabaseService';
 
 export default function ZReportModal({ isOpen, onClose, settings, session }) {
+  const [sales, setSales] = React.useState([]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    fetchOrders({ limit: 500 }).then(data => setSales(data));
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  const sales = getSalesHistory();
   const today = new Date().toISOString().split('T')[0];
-  const todaySales = sales.filter(s => s.timestamp && s.timestamp.startsWith(today));
+  const todaySales = sales.filter(s => (s.created_at || s.timestamp || '').startsWith(today));
 
-  const regularSales = todaySales.filter(s => !s.is_refund);
-  const refunds = todaySales.filter(s => s.is_refund);
+  const regularSales = todaySales.filter(s => s.order_type !== 'refund');
+  const refunds = todaySales.filter(s => s.order_type === 'refund');
 
-  const totalRevenue = todaySales.reduce((sum, s) => sum + (s.total || 0), 0);
+  const totalRevenue = regularSales.reduce((sum, s) => sum + (s.total || 0), 0);
   const totalSubtotal = regularSales.reduce((sum, s) => sum + (s.subtotal || 0), 0);
-  const totalTax = regularSales.reduce((sum, s) => sum + (s.tax_amount || 0), 0);
-  const totalRefundAmount = refunds.reduce((sum, s) => Math.abs(sum) + Math.abs(s.total || 0), 0);
+  const totalTax = regularSales.reduce((sum, s) => sum + (s.tax_total || 0), 0);
+  const totalRefundAmount = refunds.reduce((sum, s) => sum + Math.abs(s.total || 0), 0);
 
-  const cashTotal = todaySales.filter(s => s.payment_method === 'Cash').reduce((sum, s) => sum + s.total, 0);
+  const cashTotal = regularSales.filter(s => s.payment_method === 'Cash').reduce((sum, s) => sum + s.total, 0);
   const cardTotal = todaySales.filter(s => s.payment_method === 'Card').reduce((sum, s) => sum + s.total, 0);
   const mobileTotal = todaySales.filter(s => s.payment_method === 'Mobile Transfer').reduce((sum, s) => sum + s.total, 0);
 
@@ -46,16 +52,16 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
           <div class="row"><span>Total Orders:</span><span class="bold">${regularSales.length}</span></div>
           <div class="row"><span>Total Items Sold:</span><span class="bold">${regularSales.reduce((sum, s) => sum + s.items.reduce((a, i) => a + i.quantity, 0), 0)}</span></div>
           <div class="line"></div>
-          <div class="row"><span>Gross Subtotal:</span><span>$${totalSubtotal.toFixed(2)}</span></div>
-          <div class="row"><span>Tax/VAT Collected:</span><span>+$${totalTax.toFixed(2)}</span></div>
-          <div class="row"><span>Refunds Processed:</span><span>-$${totalRefundAmount.toFixed(2)}</span></div>
+          <div class="row"><span>Gross Subtotal:</span><span>GH₵${totalSubtotal.toFixed(2)}</span></div>
+          <div class="row"><span>Tax/VAT Collected:</span><span>+GH₵${totalTax.toFixed(2)}</span></div>
+          <div class="row"><span>Refunds Processed:</span><span>-GH₵${totalRefundAmount.toFixed(2)}</span></div>
           <div class="line"></div>
-          <div class="row bold" style="font-size:14px;"><span>NET TOTAL REVENUE:</span><span>$${totalRevenue.toFixed(2)}</span></div>
+          <div class="row bold" style="font-size:14px;"><span>NET TOTAL REVENUE:</span><span>GH₵${totalRevenue.toFixed(2)}</span></div>
           <div class="line"></div>
           <div class="bold">TILL BALANCING SUMMARY</div>
-          <div class="row"><span>Cash Total:</span><span>$${cashTotal.toFixed(2)}</span></div>
-          <div class="row"><span>Card Total:</span><span>$${cardTotal.toFixed(2)}</span></div>
-          <div class="row"><span>Mobile Transfer:</span><span>$${mobileTotal.toFixed(2)}</span></div>
+          <div class="row"><span>Cash Total:</span><span>GH₵${cashTotal.toFixed(2)}</span></div>
+          <div class="row"><span>Card Total:</span><span>GH₵${cardTotal.toFixed(2)}</span></div>
+          <div class="row"><span>Mobile Transfer:</span><span>GH₵${mobileTotal.toFixed(2)}</span></div>
           <div class="line"></div>
           <div style="text-align:center; font-size:10px; margin-top:8px;">
             End of Shift Till Audit<br/>Brushwell Books System
@@ -116,22 +122,22 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', margin: '2px 0' }}>
               <span>Subtotal:</span>
-              <span>${totalSubtotal.toFixed(2)}</span>
+              <span>GH₵{totalSubtotal.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', margin: '2px 0' }}>
               <span>Tax / VAT Collected:</span>
-              <span>+${totalTax.toFixed(2)}</span>
+              <span>+GH₵{totalTax.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', margin: '2px 0' }}>
               <span>Refunds Issued:</span>
-              <span>-${totalRefundAmount.toFixed(2)}</span>
+              <span>-GH₵{totalRefundAmount.toFixed(2)}</span>
             </div>
 
             <div style={{ borderBottom: '1px dashed #999', margin: '6px 0' }}></div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 'bold' }}>
               <span>NET REVENUE:</span>
-              <span>${totalRevenue.toFixed(2)}</span>
+              <span>GH₵{totalRevenue.toFixed(2)}</span>
             </div>
 
             <div style={{ borderBottom: '1px dashed #999', margin: '6px 0' }}></div>
@@ -139,15 +145,15 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
             <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>TILL RECONCILIATION</div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>💵 Cash in Till:</span>
-              <span>${cashTotal.toFixed(2)}</span>
+              <span>GH₵{cashTotal.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>💳 Card Payments:</span>
-              <span>${cardTotal.toFixed(2)}</span>
+              <span>GH₵{cardTotal.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>📱 Mobile Transfer:</span>
-              <span>${mobileTotal.toFixed(2)}</span>
+              <span>GH₵{mobileTotal.toFixed(2)}</span>
             </div>
           </div>
         </div>

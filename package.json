@@ -1,7 +1,7 @@
 {
   "name": "brushwell-pos",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,18 +10,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.9",
     "canvas-confetti": "^1.9.4",
     "html5-qrcode": "^2.3.8",
-    "jsbarcode": "^3.12.3",
-    "lucide-react": "^1.27.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "jsbarcode": "^3.11.6",
+    "lucide-react": "^1.16.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.3",
-    "oxlint": "^1.71.0",
-    "vite": "^8.1.1"
+    "@vitejs/plugin-react": "^4.3.4",
+    "oxlint": "^0.15.10",
+    "vite": "^6.2.0",
+    "xlsx": "^0.18.5"
   }
 }

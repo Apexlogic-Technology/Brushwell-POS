@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, RotateCcw, Search, Check, RefreshCw, AlertTriangle } from 'lucide-react';
-import { getSalesHistory, processRefund } from '../services/n8nService';
+import { fetchOrders, processRefund } from '../services/supabaseService';
 
 export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
   const [orderQuery, setOrderQuery] = useState('');
@@ -8,14 +8,18 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
   const [returnItems, setReturnItems] = useState({});
   const [reason, setReason] = useState('Customer Return');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sales, setSales] = React.useState([]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    fetchOrders({ limit: 200 }).then(data => setSales(data.filter(s => s.order_type !== 'refund')));
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const sales = getSalesHistory();
-  const matchedOrders = sales.filter(s => 
-    !s.is_refund &&
-    (s.order_id.toLowerCase().includes(orderQuery.toLowerCase()) ||
-     (s.cashier_name && s.cashier_name.toLowerCase().includes(orderQuery.toLowerCase())))
+  const matchedOrders = sales.filter(s =>
+    (s.order_id||'').toLowerCase().includes(orderQuery.toLowerCase()) ||
+    (s.cashier_name && s.cashier_name.toLowerCase().includes(orderQuery.toLowerCase()))
   );
 
   const selectOrder = (order) => {
@@ -139,7 +143,7 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
                           {new Date(order.timestamp).toLocaleString()} • {order.items.length} items
                         </div>
                       </div>
-                      <span style={{ fontWeight: 800, color: 'var(--accent-emerald)' }}>${order.total.toFixed(2)}</span>
+                      <span style={{ fontWeight: 800, color: 'var(--accent-emerald)' }}>GH₵{order.total.toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
@@ -163,7 +167,7 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
                       Refunding Order #{selectedOrder.order_id}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      Original Total: ${selectedOrder.total.toFixed(2)}
+                      Original Total: GH₵{selectedOrder.total.toFixed(2)}
                     </div>
                   </div>
                   <button type="button" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }} onClick={() => setSelectedOrder(null)}>
@@ -199,7 +203,7 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
                       }}>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>{item.product_name}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>${item.price.toFixed(2)} each</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>GH₵{item.price.toFixed(2)} each</div>
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
