@@ -14,25 +14,29 @@ export const DEFAULT_TAX_TYPES = [
   { id: 'covid',   name: 'COVID-19 Levy',rate_pct: 1.0, enabled: false }
 ];
 
+const DEFAULT_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://jbtchpgpngojhsyyucko.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpidGNocGdwbmdvamhzeXl1Y2tvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNzM5MDUsImV4cCI6MjEwMDc0OTkwNX0.aXGuX5MULbfYjYAxWIni7g0xcnETF1VJpbE7LC6zoFY';
+
 // ─── Settings (device-local config only) ─────────────────────────────────────
 export const getSettings = () => {
   const saved = localStorage.getItem(SETTINGS_KEY);
+  let parsed = {};
   if (saved) {
     try {
-      const parsed = JSON.parse(saved);
-      if (!parsed.tax_types || parsed.tax_types.length === 0) parsed.tax_types = DEFAULT_TAX_TYPES;
-      return parsed;
+      parsed = JSON.parse(saved) || {};
     } catch (e) { console.error(e); }
   }
+  if (!parsed.tax_types || parsed.tax_types.length === 0) parsed.tax_types = DEFAULT_TAX_TYPES;
+
   return {
-    supabase_url: '',
-    supabase_anon_key: '',
-    store_name: 'Brushwell Books',
-    currency_symbol: 'GH₵',
-    printer_paper_width: '58mm',
-    printer_bluetooth_name: '',
-    tax_types: DEFAULT_TAX_TYPES,
-    tax_enabled_default: false
+    supabase_url: parsed.supabase_url || DEFAULT_SUPABASE_URL,
+    supabase_anon_key: parsed.supabase_anon_key || DEFAULT_SUPABASE_ANON_KEY,
+    store_name: parsed.store_name || 'Brushwell Books',
+    currency_symbol: parsed.currency_symbol || 'GH₵',
+    printer_paper_width: parsed.printer_paper_width || '58mm',
+    printer_bluetooth_name: parsed.printer_bluetooth_name || '',
+    tax_types: parsed.tax_types,
+    tax_enabled_default: parsed.tax_enabled_default || false
   };
 };
 
@@ -77,14 +81,31 @@ export const fetchProducts = async () => {
   const client = getSupabaseClient();
   if (!client) return [];
 
-  const { data, error } = await client
-    .from('products')
-    .select('*')
-    .order('product_name', { ascending: true });
+  // Supabase PostgREST defaults to max 1000 rows per request.
+  // Loop with range() to fetch ALL products regardless of count.
+  const PAGE_SIZE = 1000;
+  let allProducts = [];
+  let from = 0;
 
-  if (error) { console.error('fetchProducts error:', error.message); return []; }
-  return data || [];
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await client
+      .from('products')
+      .select('*')
+      .order('product_name', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) { console.error('fetchProducts error:', error.message); break; }
+    if (!data || data.length === 0) break;
+
+    allProducts = allProducts.concat(data);
+    if (data.length < PAGE_SIZE) break; // last page
+    from += PAGE_SIZE;
+  }
+
+  return allProducts;
 };
+
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {

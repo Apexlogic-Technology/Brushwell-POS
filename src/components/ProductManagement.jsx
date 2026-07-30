@@ -445,7 +445,7 @@ export default function ProductManagement({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       
       {/* Top Header & Actions Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -703,13 +703,13 @@ export default function ProductManagement({
       </div>
 
       {/* Main Inventory Display: Cards Grid or Responsive Table */}
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {viewMode === 'table' ? (
           <div className="responsive-table-wrapper">
             <table className="responsive-table">
               <thead>
                 <tr>
-                  <th style={{ width: '40px', textAlign: 'center' }}>
+                  <th style={{ width: '32px', textAlign: 'center' }}>
                     <input
                       type="checkbox"
                       checked={filteredProducts.length > 0 && selectedIds.size === filteredProducts.length}
@@ -717,14 +717,11 @@ export default function ProductManagement({
                       style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
                     />
                   </th>
-                  <th style={{ minWidth: '220px' }}>Title & Author</th>
-                  <th style={{ minWidth: '140px' }}>Publisher</th>
-                  <th style={{ minWidth: '150px' }}>Category / Grade</th>
-                  <th style={{ minWidth: '100px' }}>Retail (GH₵)</th>
-                  <th style={{ minWidth: '100px' }}>Wholesale</th>
-                  <th style={{ minWidth: '90px' }}>Stock</th>
-                  <th style={{ minWidth: '130px' }}>Barcode / ISBN</th>
-                  <th style={{ minWidth: '110px', textAlign: 'right' }}>Actions</th>
+                  <th>Title</th>
+                  <th>Cat</th>
+                  <th>Price</th>
+                  <th>Stock</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -747,40 +744,34 @@ export default function ProductManagement({
                           style={{ cursor: 'pointer', accentColor: 'var(--accent-purple)' }}
                         />
                       </td>
-                      <td style={{ fontWeight: 700, color: 'var(--text-main)' }}>
-                        <div style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                      <td style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.8rem' }}>
+                        <div style={{ whiteSpace: 'normal', wordBreak: 'break-word', minWidth: '100px' }}>
                           {product.product_name}
                         </div>
-                      </td>
-                      <td style={{ color: 'var(--text-muted)' }}>
-                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {product.publisher || '—'}
-                        </div>
+                        {product.publisher && (
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                            {product.publisher}
+                          </div>
+                        )}
                       </td>
                       <td>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary)', display: 'inline-block' }}>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 600, padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary)', display: 'inline-block', whiteSpace: 'nowrap' }}>
                           {product.category_name || 'General'}
                         </span>
                       </td>
-                      <td style={{ fontWeight: 800, color: 'var(--primary)' }}>
-                        GH₵ {parseFloat(product.retail_price || 0).toFixed(2)}
-                      </td>
-                      <td style={{ color: 'var(--text-muted)' }}>
-                        GH₵ {parseFloat(product.wholesale_price || 0).toFixed(2)}
+                      <td style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                        GH₵{parseFloat(product.retail_price || 0).toFixed(2)}
                       </td>
                       <td>
                         <span style={{
-                          fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-full)',
+                          fontSize: '0.7rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)',
                           background: isLowStock ? 'var(--accent-rose-light)' : 'var(--accent-emerald-light)',
                           color: isLowStock ? 'var(--accent-rose)' : 'var(--accent-emerald)'
                         }}>
                           {product.stock_quantity || 0}
                         </span>
                       </td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-subtle)' }}>
-                        {product.barcode || '—'}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'flex-end' }}>
                           <button type="button" className="btn-icon" title="Print Barcode" onClick={() => onOpenBarcodeGen && onOpenBarcodeGen(product)} style={{ width: '28px', height: '28px' }}>
                             <BarcodeIcon size={13} />

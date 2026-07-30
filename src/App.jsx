@@ -213,7 +213,7 @@ export default function App() {
   return (
     <div className="app-container">
       {/* Mobile-Only Header */}
-      <div className="mobile-only-header" style={{ position: 'sticky', top: 0, zIndex: 90 }}>
+      <div className="mobile-only-header">
         <Header
           settings={settings}
           onOpenSettings={() => isAdmin && setIsSettingsOpen(true)}

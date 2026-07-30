@@ -227,45 +227,41 @@ button:active {
 .app-container {
   display: flex;
   flex-direction: column;
+  height: 100dvh;
   height: 100vh;
   width: 100vw;
-  position: relative;
   background-color: var(--bg-app);
   overflow: hidden;
 }
 
 .main-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 0.75rem;
-  /* Enough room for: bottom nav (64px) + floating cart bar (~68px) + gap + safe area */
-  padding-bottom: calc(9.5rem + env(safe-area-inset-bottom, 0px));
+  /* Exactly: 60px nav height + safe area — no extra whitespace */
+  padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
 }
 
-/* Navigation Tabs (Bottom Bar for Mobile) */
+/* Navigation Tabs — position:fixed is most reliable for iOS/Android */
 .bottom-nav {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  /* Total height: 64px for icons + iOS home indicator */
-  height: calc(64px + env(safe-area-inset-bottom, 0px));
+  height: 60px;
   background: var(--bg-glass);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--border-light);
   display: flex;
-  /* Items sit at the TOP of the bar so they live in the 64px zone, 
-     not pushed down into the safe-area zone */
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-around;
   z-index: 100;
   padding: 0 0.5rem;
-  /* Push items down by half of (64px - ~48px item height) = ~8px to visually center them */
-  padding-top: 8px;
-  /* Safe area fills the bottom — no content there */
-  padding-bottom: 0;
-  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: content-box;
 }
 
 .nav-item {
@@ -274,17 +270,21 @@ button:active {
   align-items: center;
   justify-content: center;
   flex: 1;
-  height: 48px; /* Fixed — lives inside the 64px visible zone, above safe area */
+  height: 100%;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   transition: all var(--transition-fast);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  gap: 2px;
+  padding: 0;
 }
 .nav-item.active {
   color: var(--primary);
 }
 .nav-item.active svg {
-  transform: translateY(-2px);
   filter: drop-shadow(0 2px 6px var(--primary-glow));
 }
 
@@ -490,6 +490,7 @@ button:active {
     padding-bottom: 1.5rem !important;
     flex: 1;
     overflow-y: auto;
+    min-height: 0;
   }
 
   /* Split Pane Selling Interface on Desktop */
@@ -540,25 +541,25 @@ button:active {
 .responsive-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 720px; /* Ensures columns never get squished into overlapping text */
+  min-width: 100%;
   text-align: left;
 }
 
 .responsive-table th {
   background: var(--bg-surface-elevated);
-  padding: 0.65rem 0.85rem;
-  font-size: 0.75rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   border-bottom: 1px solid var(--border-light);
   white-space: nowrap;
 }
 
 .responsive-table td {
-  padding: 0.65rem 0.85rem;
-  font-size: 0.84rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
 }
@@ -608,8 +609,8 @@ button:active {
 /* Product Cards Grid & Touch Layout */
 .product-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.5rem;
 }
 @media (max-width: 480px) {
   .product-cards-grid {
@@ -621,11 +622,11 @@ button:active {
   background: var(--bg-surface);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
-  padding: 0.85rem;
+  padding: 0.6rem 0.75rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 0.65rem;
+  gap: 0.45rem;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
   box-shadow: var(--shadow-sm);
 }

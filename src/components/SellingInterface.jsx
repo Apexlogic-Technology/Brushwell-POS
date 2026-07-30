@@ -214,7 +214,7 @@ export default function SellingInterface({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       
       {/* Controls Bar */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -273,11 +273,11 @@ export default function SellingInterface({
           display: 'flex',
           gap: '0.4rem',
           overflowX: 'auto',
-          paddingBottom: '0.2rem'
+          paddingBottom: '0.2rem',
+          scrollbarWidth: 'none'
         }}>
           <button
             onClick={() => setSelectedCat('all')}
-            className={`badge ${selectedCat === 'all' ? 'badge-primary' : ''}`}
             style={{
               padding: '0.35rem 0.75rem',
               borderRadius: 'var(--radius-full)',
@@ -285,30 +285,38 @@ export default function SellingInterface({
               color: selectedCat === 'all' ? '#fff' : 'var(--text-muted)',
               border: '1px solid var(--border-light)',
               cursor: 'pointer',
-              whiteSpace: 'nowrap'
+              whiteSpace: 'nowrap',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              flexShrink: 0
             }}
           >
-            All Genres ({products.length})
+            All ({products.length})
           </button>
-          {categories.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCat(cat.id)}
-              style={{
-                padding: '0.35rem 0.75rem',
-                borderRadius: 'var(--radius-full)',
-                background: selectedCat === cat.id ? 'var(--primary)' : 'var(--bg-surface-elevated)',
-                color: selectedCat === cat.id ? '#fff' : 'var(--text-muted)',
-                border: '1px solid var(--border-light)',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {cat.name}
-            </button>
-          ))}
+          {categories.map(cat => {
+            const count = products.filter(p => p.category_id === cat.id || p.category_name === cat.name).length;
+            if (count === 0) return null; // hide empty categories
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCat(cat.id)}
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 'var(--radius-full)',
+                  background: selectedCat === cat.id ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                  color: selectedCat === cat.id ? '#fff' : 'var(--text-muted)',
+                  border: '1px solid var(--border-light)',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0
+                }}
+              >
+                {cat.name} ({count})
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -317,9 +325,7 @@ export default function SellingInterface({
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
         gap: '0.75rem',
-        alignContent: 'start',
-        overflowY: 'auto',
-        flex: 1
+        alignContent: 'start'
       }}>
         {displayedProducts.map(product => {
           const price = priceMode === 'wholesale' ? product.wholesale_price : product.retail_price;
@@ -430,21 +436,20 @@ export default function SellingInterface({
       {/* Floating Bottom Cart Bar */}
       {cart.length > 0 && (
         <div style={{
-          position: 'fixed',
-          bottom: 'calc(64px + env(safe-area-inset-bottom, 0px) + 8px)',
-          left: '1rem',
-          right: '1rem',
+          position: 'sticky',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          margin: '0 -0.75rem -0.75rem',
           background: 'linear-gradient(135deg, var(--primary), var(--accent-purple))',
           color: '#fff',
-          borderRadius: 'var(--radius-lg)',
           padding: '0.75rem 1.25rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          boxShadow: '0 10px 25px var(--primary-glow)',
+          boxShadow: '0 -4px 20px var(--primary-glow)',
           zIndex: 80,
-          cursor: 'pointer',
-          animation: 'slideUp 0.2s ease-out'
+          cursor: 'pointer'
         }} onClick={() => setIsCartOpen(true)}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{
@@ -454,7 +459,7 @@ export default function SellingInterface({
               fontWeight: 800,
               fontSize: '0.9rem'
             }}>
-              {cart.reduce((a, b) => a + b.quantity, 0)} Books
+              {cart.reduce((a, b) => a + b.quantity, 0)} Items
             </div>
             <div>
               <div style={{ fontSize: '0.75rem', opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
