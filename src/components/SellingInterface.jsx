@@ -40,7 +40,24 @@ export default function SellingInterface({
   const activeTaxTypes = taxTypes.filter(t => t.enabled);
   const totalTaxRatePct = activeTaxTypes.reduce((sum, t) => sum + (parseFloat(t.rate_pct) || 0), 0);
 
-  // Filter products by category, title, publisher, author, and barcode
+  // Helper to expand educational level synonyms (e.g., "Class 3" <-> "Book 3" <-> "Basic 3" <-> "BS 3")
+  const getGradeSynonyms = (text) => {
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    const matches = lower.match(/(?:class|grade|basic|book|primary|stage|bs|p|b|jhs|shs|kg|nursery)\s*([0-9]+)/gi);
+    if (!matches) return '';
+    const syns = [];
+    matches.forEach(m => {
+      const numMatch = m.match(/[0-9]+/);
+      if (numMatch) {
+        const n = numMatch[0];
+        syns.push(`class ${n}`, `book ${n}`, `basic ${n}`, `grade ${n}`, `primary ${n}`, `stage ${n}`, `bs ${n}`, `b${n}`, `p${n}`);
+      }
+    });
+    return syns.join(' ');
+  };
+
+  // Filter products by category, title, publisher, author, grade/class, and barcode
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       if (!p) return false;
@@ -56,9 +73,10 @@ export default function SellingInterface({
       const author = (p.author || '').toLowerCase();
       const category = (p.category_name || '').toLowerCase();
       const barcode = String(p.barcode || '').toLowerCase();
+      const gradeSynonyms = getGradeSynonyms(`${prodName} ${category}`);
 
-      // Combined searchable text across title, author/publisher, category, barcode
-      const fullSearchable = `${prodName} ${publisher} ${author} ${category} ${barcode}`;
+      // Combined searchable text across title, author/publisher, class/grade, barcode, and educational aliases
+      const fullSearchable = `${prodName} ${publisher} ${author} ${category} ${gradeSynonyms} ${barcode}`;
 
       // Match if all search words appear in the book's metadata or direct barcode match
       const allTokensMatch = qTokens.every(token => fullSearchable.includes(token));
@@ -440,11 +458,26 @@ export default function SellingInterface({
                 }}>
                   {product.product_name}
                 </div>
-                {product.publisher && (
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {product.publisher}
-                  </div>
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
+                  {product.publisher && (
+                    <span style={{ fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {product.publisher}
+                    </span>
+                  )}
+                  {product.category_name && product.category_name !== 'General' && (
+                    <span style={{
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      padding: '0.05rem 0.35rem',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-light)',
+                      color: 'var(--text-muted)'
+                    }}>
+                      {product.category_name}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Stock badge */}
