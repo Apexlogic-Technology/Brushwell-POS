@@ -25,24 +25,33 @@ const NUMBER_WORDS = {
   'half dozen': 6, 'half a dozen': 6
 };
 
+const STOP_WORDS = new Set([
+  'please', 'can', 'you', 'i', 'want', 'to', 'buy', 'sell', 'give', 'me',
+  'add', 'a', 'an', 'the', 'book', 'books', 'copy', 'copies', 'piece',
+  'pieces', 'item', 'items', 'of', 'for', 'put', 'get', 'in', 'cart', 'some'
+]);
+
 /**
  * Convert spoken number phrases to numeric values
- * Example: "three" -> 3, "twenty five" -> 25, "a dozen" -> 12
+ * Example: "three" -> 3, "twenty five" -> 25, "a dozen" -> 12, "50" -> 50
  */
 export function parseSpokenNumber(text) {
   if (!text) return null;
   const clean = String(text).toLowerCase().trim();
 
-  // Check direct digits
-  const directMatch = clean.match(/^(\d+(\.\d+)?)$/);
-  if (directMatch) return parseFloat(directMatch[1]);
+  // Extract direct digits if present
+  const digitMatch = clean.match(/(\d+(?:\.\d+)?)/);
+  if (digitMatch) {
+    const num = parseFloat(digitMatch[1]);
+    if (!isNaN(num)) return num;
+  }
 
-  // Check special words
+  // Check direct word match
   if (NUMBER_WORDS[clean] !== undefined) {
     return NUMBER_WORDS[clean];
   }
 
-  // Check compound numbers like "twenty five" -> 25
+  // Check compound words like "twenty five" -> 25
   const words = clean.split(/[\s-]+/);
   let total = 0;
   let current = 0;
@@ -70,7 +79,7 @@ export function parseSpokenNumber(text) {
 /**
  * Clean text for phonetic / token matching
  */
-function normalizeText(text) {
+export function normalizeText(text) {
   return String(text || '')
     .toLowerCase()
     .replace(/[^\w\s]/g, ' ')
@@ -84,9 +93,9 @@ function normalizeText(text) {
 function calculateMatchScore(product, queryTokens) {
   if (!product || queryTokens.length === 0) return 0;
 
-  const nameTokens = normalizeText(product.product_name || '').split(' ');
-  const pubTokens = normalizeText(product.publisher || '').split(' ');
-  const catTokens = normalizeText(product.category_name || '').split(' ');
+  const nameTokens = normalizeText(product.product_name || '').split(' ').filter(Boolean);
+  const pubTokens = normalizeText(product.publisher || '').split(' ').filter(Boolean);
+  const catTokens = normalizeText(product.category_name || '').split(' ').filter(Boolean);
   const barcode = String(product.barcode || '').toLowerCase();
 
   let matchedTokens = 0;
@@ -96,7 +105,7 @@ function calculateMatchScore(product, queryTokens) {
   const fullProdName = normalizeText(product.product_name || '');
 
   if (fullProdName.includes(fullQuery)) {
-    exactPhraseBonus = 3;
+    exactPhraseBonus = 4;
   }
 
   for (const token of queryTokens) {
@@ -104,27 +113,34 @@ function calculateMatchScore(product, queryTokens) {
 
     // Direct match in barcode
     if (barcode && barcode.includes(token)) {
-      matchedTokens += 4;
+      matchedTokens += 5;
       continue;
     }
 
     // Direct token match in product name
-    const foundInName = nameTokens.some(nt => nt === token || nt.startsWith(token) || (token.length > 3 && nt.includes(token)));
+    const foundInName = nameTokens.some(nt => 
+      nt === token || 
+      nt.startsWith(token) || 
+      token.startsWith(nt) || 
+      (token.length >= 3 && nt.includes(token)) ||
+      (nt.length >= 3 && token.includes(nt))
+    );
     if (foundInName) {
-      matchedTokens += 2;
+      matchedTokens += 2.5;
       continue;
     }
 
-    // Match in publisher or category
+    // Match in publisher
     const foundInPub = pubTokens.some(pt => pt === token || pt.startsWith(token));
     if (foundInPub) {
-      matchedTokens += 1;
+      matchedTokens += 1.5;
       continue;
     }
 
+    // Match in category
     const foundInCat = catTokens.some(ct => ct === token || ct.startsWith(token));
     if (foundInCat) {
-      matchedTokens += 0.5;
+      matchedTokens += 0.8;
     }
   }
 
@@ -136,6 +152,7 @@ function calculateMatchScore(product, queryTokens) {
  * Handles:
  * - "Add 3 copies of Aki-Ola Core Mathematics"
  * - "2 Kokroko English"
+ * - "Aki-Ola Science"
  * - "Remove Aki-Ola"
  * - "Wholesale mode" / "Retail mode"
  * - "Checkout" / "Pay"
@@ -149,11 +166,11 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
   const normalized = normalizeText(transcript);
 
   // 1. Navigation & System Commands
-  if (/^(checkout|pay|complete sale|payment|process sale)$/i.test(normalized)) {
+  if (/(checkout|pay|complete sale|payment|process sale|finish sale)/i.test(normalized)) {
     return { intent: 'CHECKOUT', raw: transcript };
   }
 
-  if (/^(clear cart|empty cart|delete cart|remove all)$/i.test(normalized)) {
+  if (/(clear cart|empty cart|delete cart|remove all|clear all)/i.test(normalized)) {
     return { intent: 'CLEAR_CART', raw: transcript };
   }
 
@@ -165,11 +182,11 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
     return { intent: 'SET_PRICE_MODE', mode: 'retail', raw: transcript };
   }
 
-  if (/^(enable tax|apply tax|with tax|add tax)$/i.test(normalized)) {
+  if (/(enable tax|apply tax|with tax|add tax)/i.test(normalized)) {
     return { intent: 'TOGGLE_TAX', value: true, raw: transcript };
   }
 
-  if (/^(disable tax|remove tax|without tax|no tax)$/i.test(normalized)) {
+  if (/(disable tax|remove tax|without tax|no tax)/i.test(normalized)) {
     return { intent: 'TOGGLE_TAX', value: false, raw: transcript };
   }
 
@@ -186,13 +203,13 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
   const removeMatch = normalized.match(/^(?:remove|delete|cancel|drop)\s+(?:item\s+)?(.+)$/);
   if (removeMatch) {
     const queryPart = removeMatch[1].trim();
-    const queryTokens = queryPart.split(' ');
+    const queryTokens = queryPart.split(' ').filter(w => !STOP_WORDS.has(w));
     let bestMatch = null;
     let highestScore = 0;
 
     for (const p of products) {
       const score = calculateMatchScore(p, queryTokens);
-      if (score > highestScore && score >= 1.5) {
+      if (score > highestScore && score >= 1.2) {
         highestScore = score;
         bestMatch = p;
       }
@@ -208,12 +225,9 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
   }
 
   // 4. Add to Cart with Quantity:
-  // e.g. "Add 3 copies of Aki-Ola Science", "5 Kokroko English", "Give me a dozen Golden Math"
+  // e.g. "Add 3 copies of Aki-Ola Science", "5 Kokroko English", "Aki-Ola Mathematics"
   let quantity = 1;
   let queryText = normalized;
-
-  // Strip leading trigger words
-  queryText = queryText.replace(/^(please\s+)?(add|give me|sell|put|i want|get|buy)\s+/i, '');
 
   // Extract quantity from beginning
   const leadingQtyMatch = queryText.match(/^(\d+|a dozen|half dozen|half a dozen|one dozen|two dozen|three dozen|[a-z]+)\s+(?:copies\s+of|pieces\s+of|copies|pieces|pcs|qty\s+)?(.+)$/);
@@ -225,7 +239,7 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
     }
   }
 
-  // Also check quantity at the end: e.g. "Aki-Ola Science 3 pieces" or "Aki-Ola Science quantity 5"
+  // Also check quantity at the end: e.g. "Aki-Ola Science 3 pieces"
   const trailingQtyMatch = queryText.match(/^(.+?)\s+(?:quantity|qty|pieces|copies|pcs)\s+(\d+|[a-z]+)$/);
   if (trailingQtyMatch) {
     const potentialQty = parseSpokenNumber(trailingQtyMatch[2]);
@@ -235,17 +249,18 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
     }
   }
 
-  // Clean remaining query text
-  queryText = queryText.replace(/^(copies\s+of|copies|pieces\s+of|pieces|books?\s+of|books?)\s+/i, '').trim();
-  const queryTokens = queryText.split(' ').filter(t => t.length > 0);
+  // Clean tokens by removing filler words
+  const allTokens = queryText.split(' ').filter(Boolean);
+  const meaningfulTokens = allTokens.filter(w => !STOP_WORDS.has(w) && w.length >= 2);
+  const tokensToUse = meaningfulTokens.length > 0 ? meaningfulTokens : allTokens;
 
   // Match against catalog
   let bestMatch = null;
   let highestScore = 0;
 
   for (const p of products) {
-    const score = calculateMatchScore(p, queryTokens);
-    if (score > highestScore && score >= 1.5) {
+    const score = calculateMatchScore(p, tokensToUse);
+    if (score > highestScore && score >= 1.0) {
       highestScore = score;
       bestMatch = p;
     }
@@ -261,10 +276,10 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
   }
 
   // Search intent fallback if no direct product found
-  if (queryTokens.length > 0) {
+  if (tokensToUse.length > 0) {
     return {
       intent: 'SEARCH',
-      query: queryText,
+      query: tokensToUse.join(' '),
       raw: transcript
     };
   }
@@ -339,16 +354,12 @@ export function parseVoiceProductCommand(rawTranscript, categories = []) {
     }
   }
 
-  // 7. Extract Product Name / Title:
-  // Strip out explicit keys and use the title part
+  // 7. Extract Product Name / Title
   let titleCandidate = transcript;
-
-  // If explicit "Title ...", take from title
   const explicitTitleMatch = transcript.match(/(?:title|book\s+title|name|add\s+book)\s*(?:is|:)?\s*([^,]+?)(?:,|publisher|author|by|retail|wholesale|stock|price|category|barcode|$)/i);
   if (explicitTitleMatch && explicitTitleMatch[1].trim().length > 2) {
     titleCandidate = explicitTitleMatch[1].trim();
   } else {
-    // Cut off before the first detected keyword
     titleCandidate = titleCandidate
       .replace(/^(add|create|new)\s+(book|product|item)\s+/i, '')
       .split(/(?:,|\s+publisher|\s+author|\s+by|\s+retail|\s+wholesale|\s+stock|\s+price|\s+category|\s+barcode)/i)[0];
@@ -374,21 +385,25 @@ export function parseVoiceProductCommand(rawTranscript, categories = []) {
 
 /**
  * Text-to-Speech synthesis for spoken audio feedback
+ * Prioritizes West African/African English or warm natural voices
  */
 export function speakText(text, options = {}) {
   if (!isSpeechSynthesisSupported() || !text) return;
   try {
     window.speechSynthesis.cancel(); // cancel any active speech
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = options.rate || 1.05;
-    utterance.pitch = options.pitch || 1.0;
-    utterance.volume = options.volume !== undefined ? options.volume : 0.85;
+    utterance.rate = options.rate || 0.98; // Slightly relaxed, natural Ghanaian pace
+    utterance.pitch = options.pitch || 1.02;
+    utterance.volume = options.volume !== undefined ? options.volume : 0.95;
 
-    // Pick English voice if available
+    // Prioritize African / West African / warm English voices
     const voices = window.speechSynthesis.getVoices();
     if (voices && voices.length > 0) {
-      const enVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha')));
-      if (enVoice) utterance.voice = enVoice;
+      const preferredVoice = 
+        voices.find(v => v.lang === 'en-GH' || v.lang === 'en-NG') ||
+        voices.find(v => v.lang === 'en-ZA') ||
+        voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Arthur')));
+      if (preferredVoice) utterance.voice = preferredVoice;
     }
 
     window.speechSynthesis.speak(utterance);

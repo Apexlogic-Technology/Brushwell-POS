@@ -968,8 +968,17 @@ export default function ProductManagement({
       {/* Add / Edit Form Modal */}
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
+          <div 
+            className="modal-content" 
+            onClick={e => e.stopPropagation()}
+            style={{ 
+              maxHeight: '88vh', 
+              display: 'flex', 
+              flexDirection: 'column',
+              overflow: 'hidden'
+            }}
+          >
+            <div className="modal-header" style={{ flexShrink: 0 }}>
               <h3 style={{ fontSize: '1.05rem', fontWeight: 700 }}>
                 {editingProduct ? 'Edit Book Details' : 'Add New Book'}
               </h3>
@@ -978,8 +987,8 @@ export default function ProductManagement({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit}>
-              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 <div className="form-group">
                   <label>Book Title *</label>
                   <input
@@ -1150,13 +1159,13 @@ export default function ProductManagement({
                 </div>
               </div>
 
-              <div className="modal-footer">
+              <div className="modal-footer" style={{ flexShrink: 0, position: 'sticky', bottom: 0, zIndex: 10, background: 'var(--bg-surface)' }}>
                 <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary" disabled={isSubmitting}>
                   {isSubmitting ? <Loader size={16} className="animate-spin" /> : <Check size={16} />}
-                  Save Book
+                  {editingProduct ? 'Update Book' : 'Save Book'}
                 </button>
               </div>
             </form>

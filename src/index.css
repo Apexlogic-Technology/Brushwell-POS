@@ -292,40 +292,33 @@ button:active {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(6px);
-  z-index: 200;
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 10000;
   display: flex;
-  align-items: flex-end; /* Mobile bottom sheet look */
+  align-items: center;
   justify-content: center;
+  padding: 0.75rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
   animation: fadeIn 0.2s ease-out;
-}
-@media (min-width: 640px) {
-  .modal-overlay {
-    align-items: center;
-    padding: 1rem;
-  }
+  overflow: hidden;
 }
 
 .modal-content {
   background: var(--bg-surface);
   width: 100%;
   max-width: 550px;
-  max-height: 92dvh;
-  max-height: 92vh;
-  border-top-left-radius: var(--radius-lg);
-  border-top-right-radius: var(--radius-lg);
+  max-height: 88dvh;
+  max-height: 88vh;
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
   animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   border: 1px solid var(--border-light);
-}
-@media (min-width: 640px) {
-  .modal-content {
-    border-radius: var(--radius-lg);
-  }
+  position: relative;
 }
 
 /* A <form> directly inside modal-content must also be a flex column
@@ -335,33 +328,40 @@ button:active {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
 .modal-header {
-  padding: 1rem 1.25rem;
+  padding: 0.85rem 1.15rem;
   border-bottom: 1px solid var(--border-light);
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
+  background: var(--bg-surface);
 }
+
 .modal-body {
-  padding: 1.25rem;
+  padding: 1rem 1.15rem;
   overflow-y: auto;
   flex: 1;
   min-height: 0;
   -webkit-overflow-scrolling: touch;
 }
+
 .modal-footer {
-  padding: 1rem 1.25rem;
+  padding: 0.75rem 1.15rem;
   border-top: 1px solid var(--border-light);
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.75rem;
+  gap: 0.6rem;
   flex-shrink: 0;
   background: var(--bg-surface);
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
 
 /* Animations */
