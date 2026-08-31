@@ -39,15 +39,31 @@ export default function SellingInterface({
   const activeTaxTypes = taxTypes.filter(t => t.enabled);
   const totalTaxRatePct = activeTaxTypes.reduce((sum, t) => sum + (parseFloat(t.rate_pct) || 0), 0);
 
-  // Filter products
+  // Filter products by category, title, publisher, author, and barcode
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       if (!p) return false;
       const matchesCat = selectedCat === 'all' || p.category_id === selectedCat || p.category_name === selectedCat;
-      const matchesQuery = !searchQuery || 
-                           (p.product_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           (p.barcode && String(p.barcode).includes(searchQuery));
-      return matchesCat && matchesQuery;
+      if (!matchesCat) return false;
+      if (!searchQuery) return true;
+
+      const q = searchQuery.toLowerCase().trim();
+      const qTokens = q.split(/\s+/).filter(Boolean);
+
+      const prodName = (p.product_name || '').toLowerCase();
+      const publisher = (p.publisher || '').toLowerCase();
+      const author = (p.author || '').toLowerCase();
+      const category = (p.category_name || '').toLowerCase();
+      const barcode = String(p.barcode || '').toLowerCase();
+
+      // Combined searchable text across title, author/publisher, category, barcode
+      const fullSearchable = `${prodName} ${publisher} ${author} ${category} ${barcode}`;
+
+      // Match if all search words appear in the book's metadata or direct barcode match
+      const allTokensMatch = qTokens.every(token => fullSearchable.includes(token));
+      const barcodeMatch = barcode.includes(q);
+
+      return allTokensMatch || barcodeMatch;
     });
   }, [products, selectedCat, searchQuery]);
 
@@ -449,9 +465,14 @@ export default function SellingInterface({
               </div>
 
               <div>
-                <h4 style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, marginBottom: '0.25rem' }}>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, marginBottom: '0.2rem' }}>
                   {product.product_name}
                 </h4>
+                {product.publisher && (
+                  <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 600, marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {product.publisher}
+                  </div>
+                )}
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', fontFamily: 'var(--font-mono)' }}>
                   ISBN: {product.barcode}
                 </div>
