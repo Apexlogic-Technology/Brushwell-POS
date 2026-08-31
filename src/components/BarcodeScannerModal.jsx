@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { 
   X, Volume2, VolumeX, RefreshCw, CheckCircle2, AlertCircle, 
-  Barcode as BarcodeIcon, Camera, Zap, ZapOff, Upload, SwitchCamera, Loader
+  Barcode as BarcodeIcon, Camera, Zap, ZapOff, Upload, SwitchCamera, Loader,
+  Image as ImageIcon, Sparkles, Aperture
 } from 'lucide-react';
 
 // All 1D & 2D barcode formats supported by html5-qrcode
@@ -29,18 +30,19 @@ const SCANNER_REGION_ID = 'brushwell-barcode-region';
 const FILE_SCANNER_REGION_ID = 'brushwell-file-barcode-region';
 
 export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, products = [] }) {
-  const [manualCode, setManualCode]         = useState('');
-  const [continuousMode, setContinuousMode] = useState(true);
-  const [soundEnabled, setSoundEnabled]     = useState(true);
-  const [lastScanned, setLastScanned]       = useState(null);
-  const [scanError, setScanError]           = useState(null);
-  const [isScanning, setIsScanning]         = useState(false);
-  const [isInitializing, setIsInitializing] = useState(false);
-  const [cameras, setCameras]               = useState([]);
+  const [manualCode, setManualCode]             = useState('');
+  const [continuousMode, setContinuousMode]     = useState(true);
+  const [soundEnabled, setSoundEnabled]         = useState(true);
+  const [lastScanned, setLastScanned]           = useState(null);
+  const [scanError, setScanError]               = useState(null);
+  const [isScanning, setIsScanning]             = useState(false);
+  const [isInitializing, setIsInitializing]     = useState(false);
+  const [cameras, setCameras]                   = useState([]);
   const [selectedCameraId, setSelectedCameraId] = useState('');
-  const [torchAvailable, setTorchAvailable] = useState(false);
-  const [torchOn, setTorchOn]               = useState(false);
-  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [torchAvailable, setTorchAvailable]     = useState(false);
+  const [torchOn, setTorchOn]                   = useState(false);
+  const [isProcessingPicture, setIsProcessingPicture] = useState(false);
+  const [shutterFlash, setShutterFlash]         = useState(false);
 
   const scannerRef            = useRef(null);
   const lastScanTimeRef       = useRef(0);
@@ -50,6 +52,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
   const continuousModeRef     = useRef(continuousMode);
   const selectedCameraIdRef   = useRef(selectedCameraId);
   const fileInputRef          = useRef(null);
+  const nativeCameraInputRef  = useRef(null);
 
   // Keep refs in sync
   useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
@@ -79,6 +82,47 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
       /* ignore audio context errors */
     }
   }, []);
+
+  const handleBarcodeDecoded = useCallback((rawCode) => {
+    if (!isMountedRef.current) return;
+    const trimmed = String(rawCode || '').trim();
+    if (!trimmed) return;
+
+    const now = Date.now();
+    // Allow immediate scanning of different codes (300ms cooldown)
+    // Debounce duplicate identical code within 1.5s
+    if (trimmed === lastScannedCodeRef.current && now - lastScanTimeRef.current < 1500) {
+      return;
+    }
+    if (now - lastScanTimeRef.current < 300) {
+      return;
+    }
+
+    lastScanTimeRef.current = now;
+    lastScannedCodeRef.current = trimmed;
+
+    playBeep();
+
+    const match = (Array.isArray(products) ? products : [])
+      .filter(Boolean)
+      .find(p => {
+        const pCode = String(p.barcode || '').trim();
+        return pCode === trimmed || (p.id && String(p.id).trim() === trimmed);
+      });
+
+    setLastScanned({ 
+      code: trimmed, 
+      product: match || null, 
+      time: new Date().toLocaleTimeString() 
+    });
+
+    if (onScanSuccess) {
+      onScanSuccess(trimmed, match);
+    }
+    if (!continuousModeRef.current) {
+      onClose();
+    }
+  }, [products, onClose, onScanSuccess, playBeep]);
 
   const stopScanner = useCallback(async () => {
     const instance = scannerRef.current;
@@ -152,7 +196,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     });
     scannerRef.current = instance;
 
-    // 3. Scan configuration with wide qrbox to ensure 1D barcode margins and 2D QR codes fit
+    // 3. Scan configuration with wide qrbox
     const config = {
       fps: 20,
       qrbox: (viewfinderWidth, viewfinderHeight) => {
@@ -164,43 +208,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     };
 
     const onSuccess = (text) => {
-      if (!isMountedRef.current) return;
-      const trimmed = String(text || '').trim();
-      if (!trimmed) return;
-
-      const now = Date.now();
-      // Debounce: allow immediate detection of different items, debounce identical item within 1.5s
-      if (trimmed === lastScannedCodeRef.current && now - lastScanTimeRef.current < 1500) {
-        return;
-      }
-      if (now - lastScanTimeRef.current < 300) {
-        return;
-      }
-
-      lastScanTimeRef.current = now;
-      lastScannedCodeRef.current = trimmed;
-
-      playBeep();
-
-      const match = (Array.isArray(products) ? products : [])
-        .filter(Boolean)
-        .find(p => {
-          const pCode = String(p.barcode || '').trim();
-          return pCode === trimmed || (p.id && String(p.id).trim() === trimmed);
-        });
-
-      setLastScanned({ 
-        code: trimmed, 
-        product: match || null, 
-        time: new Date().toLocaleTimeString() 
-      });
-
-      if (onScanSuccess) {
-        onScanSuccess(trimmed, match);
-      }
-      if (!continuousModeRef.current) {
-        onClose();
-      }
+      handleBarcodeDecoded(text);
     };
 
     // 4. Try starting with prioritized options
@@ -256,9 +264,9 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
       scannerRef.current = null;
       setIsScanning(false);
       setIsInitializing(false);
-      setScanError('Camera unavailable or permission denied. Select another camera, upload a barcode photo, or enter manually.');
+      setScanError('Live camera unavailable or permission denied. You can snap/upload a picture below or type manually.');
     }
-  }, [products, onClose, onScanSuccess, playBeep, stopScanner]);
+  }, [handleBarcodeDecoded, stopScanner]);
 
   // Lifecycle: mount/unmount
   useEffect(() => {
@@ -309,46 +317,146 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     }
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    setIsProcessingFile(true);
+  // Decode a canvas or image with multi-pass decoding
+  const decodeImageOrCanvas = async (sourceCanvasOrFile) => {
+    let decodedText = null;
+
+    // Pass 1: Try native BarcodeDetector if available
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window && sourceCanvasOrFile instanceof HTMLCanvasElement) {
+      try {
+        const detector = new window.BarcodeDetector({
+          formats: [
+            'ean_13', 'ean_8', 'code_128', 'code_39', 'code_93', 
+            'upc_a', 'upc_e', 'qr_code', 'itf', 'codabar', 'data_matrix', 'pdf417'
+          ]
+        });
+        const results = await detector.detect(sourceCanvasOrFile);
+        if (results && results.length > 0) {
+          decodedText = results[0].rawValue;
+        }
+      } catch (e) {
+        console.warn('Native BarcodeDetector pass failed:', e);
+      }
+    }
+
+    // Pass 2: Html5Qrcode file scan
+    if (!decodedText) {
+      let fileToScan = sourceCanvasOrFile;
+      if (sourceCanvasOrFile instanceof HTMLCanvasElement) {
+        const blob = await new Promise(resolve => sourceCanvasOrFile.toBlob(resolve, 'image/jpeg', 0.95));
+        if (blob) {
+          fileToScan = new File([blob], 'snapshot.jpg', { type: 'image/jpeg' });
+        }
+      }
+
+      if (fileToScan instanceof File || fileToScan instanceof Blob) {
+        const fileScanner = new Html5Qrcode(FILE_SCANNER_REGION_ID, {
+          formatsToSupport: ALL_BARCODE_FORMATS,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          verbose: false,
+        });
+
+        try {
+          decodedText = await fileScanner.scanFile(fileToScan, /* showImage= */ false);
+        } catch (err) {
+          // Pass 3: Contrast boosted canvas fallback (if it was an image file)
+          if (fileToScan instanceof File && typeof window !== 'undefined') {
+            try {
+              const imgBitmap = await createImageBitmap(fileToScan);
+              const boostCanvas = document.createElement('canvas');
+              boostCanvas.width = imgBitmap.width;
+              boostCanvas.height = imgBitmap.height;
+              const ctx = boostCanvas.getContext('2d', { willReadFrequently: true });
+              ctx.drawImage(imgBitmap, 0, 0);
+              
+              // Boost contrast
+              const imgData = ctx.getImageData(0, 0, boostCanvas.width, boostCanvas.height);
+              const data = imgData.data;
+              for (let i = 0; i < data.length; i += 4) {
+                // Grayscale
+                const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                // High contrast curve
+                const contrast = (gray > 120 ? Math.min(255, gray * 1.2) : Math.max(0, gray * 0.7));
+                data[i] = contrast;
+                data[i + 1] = contrast;
+                data[i + 2] = contrast;
+              }
+              ctx.putImageData(imgData, 0, 0);
+
+              const boostedBlob = await new Promise(resolve => boostCanvas.toBlob(resolve, 'image/jpeg', 0.95));
+              if (boostedBlob) {
+                const boostedFile = new File([boostedBlob], 'boosted.jpg', { type: 'image/jpeg' });
+                decodedText = await fileScanner.scanFile(boostedFile, false);
+              }
+            } catch (boostErr) {
+              console.warn('Boost pass failed:', boostErr);
+            }
+          }
+        } finally {
+          try { fileScanner.clear(); } catch (e) { /* ignore */ }
+        }
+      }
+    }
+
+    return decodedText;
+  };
+
+  // Feature: Take a Snapshot from the active live camera view
+  const handleSnapLivePicture = async () => {
+    if (isProcessingPicture) return;
+    const videoEl = document.querySelector(`#${SCANNER_REGION_ID} video`);
+    if (!videoEl || videoEl.videoWidth === 0) {
+      // If live video is not active, trigger native camera capture instead
+      if (nativeCameraInputRef.current) nativeCameraInputRef.current.click();
+      return;
+    }
+
+    // Trigger shutter flash animation
+    setShutterFlash(true);
+    setTimeout(() => setShutterFlash(false), 200);
+
+    setIsProcessingPicture(true);
     setScanError(null);
 
     try {
-      const fileScanner = new Html5Qrcode(FILE_SCANNER_REGION_ID, {
-        formatsToSupport: ALL_BARCODE_FORMATS,
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        verbose: false,
-      });
+      const canvas = document.createElement('canvas');
+      canvas.width = videoEl.videoWidth;
+      canvas.height = videoEl.videoHeight;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
 
-      const decodedText = await fileScanner.scanFile(file, /* showImage= */ false);
-      try { fileScanner.clear(); } catch (err) { /* ignore */ }
-
-      const trimmed = String(decodedText || '').trim();
-      if (trimmed) {
-        playBeep();
-        const match = (Array.isArray(products) ? products : [])
-          .filter(Boolean)
-          .find(p => {
-            const pCode = String(p.barcode || '').trim();
-            return pCode === trimmed || (p.id && String(p.id).trim() === trimmed);
-          });
-
-        setLastScanned({
-          code: trimmed,
-          product: match || null,
-          time: new Date().toLocaleTimeString(),
-        });
-
-        if (onScanSuccess) onScanSuccess(trimmed, match);
-        if (!continuousMode) onClose();
+      const decodedText = await decodeImageOrCanvas(canvas);
+      if (decodedText) {
+        handleBarcodeDecoded(decodedText);
+      } else {
+        setScanError('Barcode not detected in snapshot. Try holding camera closer or use "Take Photo (High-Res)".');
       }
     } catch (err) {
-      setScanError('No barcode or ISBN recognized in the uploaded picture. Try a clearer image or use manual entry.');
+      setScanError('Snapshot capture error: ' + (err.message || 'Unknown error'));
     } finally {
-      setIsProcessingFile(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setIsProcessingPicture(false);
+    }
+  };
+
+  // Feature: Upload Image / Native Camera Photo Handler
+  const handleFileUpload = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setIsProcessingPicture(true);
+    setScanError(null);
+
+    try {
+      const decodedText = await decodeImageOrCanvas(file);
+      if (decodedText) {
+        handleBarcodeDecoded(decodedText);
+      } else {
+        setScanError('No barcode or ISBN recognized in the picture. Ensure the barcode bars are sharp and well-lit.');
+      }
+    } catch (err) {
+      setScanError('Could not process photo. Please try a clearer image or use manual entry.');
+    } finally {
+      setIsProcessingPicture(false);
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -379,7 +487,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
 
   return (
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1000 }}>
-      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
 
         {/* CSS for clean scanner region rendering */}
         <style>{`
@@ -409,12 +517,21 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
           #${FILE_SCANNER_REGION_ID} { display: none; }
         `}</style>
 
-        {/* Hidden region for file scanning */}
+        {/* Hidden region & input for file scanning */}
         <div id={FILE_SCANNER_REGION_ID} />
         <input 
           type="file" 
           ref={fileInputRef} 
           accept="image/*" 
+          style={{ display: 'none' }} 
+          onChange={handleFileUpload} 
+        />
+        {/* Native camera capture for mobile / high-res snapshot */}
+        <input 
+          type="file" 
+          ref={nativeCameraInputRef} 
+          accept="image/*" 
+          capture="environment" 
           style={{ display: 'none' }} 
           onChange={handleFileUpload} 
         />
@@ -436,7 +553,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
             <div>
               <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>Barcode & ISBN Scanner</h3>
               <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
-                Point camera at 1D Barcode, ISBN, or QR code
+                Live Auto-Scan or Snap a Picture to capture
               </p>
             </div>
           </div>
@@ -446,7 +563,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
         </div>
 
         {/* Body */}
-        <div className="modal-body" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+        <div className="modal-body" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
 
           {/* Controls Bar */}
           <div style={{
@@ -456,34 +573,34 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
             justifyContent: 'space-between',
             gap: '0.5rem',
             background: 'var(--bg-surface-elevated)',
-            padding: '0.5rem 0.8rem',
+            padding: '0.45rem 0.75rem',
             borderRadius: 'var(--radius-md)',
             border: '1px solid var(--border-light)'
           }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
               <input
                 type="checkbox"
                 checked={continuousMode}
                 onChange={e => setContinuousMode(e.target.checked)}
-                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+                style={{ width: '15px', height: '15px', accentColor: 'var(--primary)' }}
               />
               Continuous Scan
             </label>
 
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
               {/* Camera Switcher Dropdown (if multiple cameras detected) */}
               {cameras.length > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  <SwitchCamera size={14} color="var(--text-muted)" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                  <SwitchCamera size={13} color="var(--text-muted)" />
                   <select
                     className="form-control"
                     value={selectedCameraId}
                     onChange={handleCameraChange}
                     style={{
-                      padding: '0.2rem 0.4rem',
-                      fontSize: '0.75rem',
-                      height: '28px',
-                      maxWidth: '130px',
+                      padding: '0.15rem 0.35rem',
+                      fontSize: '0.72rem',
+                      height: '26px',
+                      maxWidth: '120px',
                       borderRadius: 'var(--radius-sm)'
                     }}
                     title="Switch Camera Device"
@@ -504,14 +621,14 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
                   className="btn-icon"
                   onClick={toggleTorch}
                   style={{ 
-                    width: '28px', 
-                    height: '28px', 
+                    width: '26px', 
+                    height: '26px', 
                     background: torchOn ? 'var(--accent-amber-light)' : 'transparent',
                     color: torchOn ? 'var(--accent-amber)' : 'inherit'
                   }}
                   title={torchOn ? 'Turn Flashlight Off' : 'Turn Flashlight On'}
                 >
-                  {torchOn ? <Zap size={14} /> : <ZapOff size={14} />}
+                  {torchOn ? <Zap size={13} /> : <ZapOff size={13} />}
                 </button>
               )}
 
@@ -520,22 +637,10 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
                 type="button"
                 className="btn-icon"
                 onClick={() => setSoundEnabled(s => !s)}
-                style={{ width: '28px', height: '28px' }}
+                style={{ width: '26px', height: '26px' }}
                 title="Toggle Beep Sound"
               >
-                {soundEnabled ? <Volume2 size={15} color="var(--primary)" /> : <VolumeX size={15} />}
-              </button>
-
-              {/* Upload photo of barcode */}
-              <button
-                type="button"
-                className="btn-icon"
-                onClick={() => fileInputRef.current && fileInputRef.current.click()}
-                disabled={isProcessingFile}
-                style={{ width: '28px', height: '28px' }}
-                title="Scan from Image File / Photo"
-              >
-                {isProcessingFile ? <Loader size={14} className="spin" /> : <Upload size={14} />}
+                {soundEnabled ? <Volume2 size={14} color="var(--primary)" /> : <VolumeX size={14} />}
               </button>
 
               {/* Restart Camera */}
@@ -543,10 +648,10 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
                 type="button"
                 className="btn-icon"
                 onClick={() => { stopScanner().then(() => startScanner(selectedCameraId)); }}
-                style={{ width: '28px', height: '28px' }}
+                style={{ width: '26px', height: '26px' }}
                 title="Restart Camera"
               >
-                <RefreshCw size={14} />
+                <RefreshCw size={13} />
               </button>
             </div>
           </div>
@@ -555,7 +660,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
           <div style={{
             position: 'relative',
             width: '100%',
-            height: '270px',
+            height: '240px',
             borderRadius: 'var(--radius-lg)',
             overflow: 'hidden',
             background: '#090d16',
@@ -569,6 +674,18 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
               id={SCANNER_REGION_ID}
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
             />
+
+            {/* Shutter flash animation overlay */}
+            {shutterFlash && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: '#fff',
+                opacity: 0.85,
+                zIndex: 20,
+                transition: 'opacity 0.2s'
+              }} />
+            )}
 
             {/* Clean scan-area overlay — only visible when scanning */}
             {isScanning && !scanError && (
@@ -590,8 +707,8 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
                 {/* Target box */}
                 <div style={{
                   position: 'relative',
-                  width: '86%',
-                  height: '62%',
+                  width: '88%',
+                  height: '65%',
                   border: '2px solid rgba(16, 185, 129, 0.75)',
                   borderRadius: '10px',
                   boxShadow: '0 0 0 1px rgba(16,185,129,0.25), inset 0 0 25px rgba(16,185,129,0.06)'
@@ -603,7 +720,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
                     { bottom: -2, left: -2, borderBottom: '3px solid #10b981', borderLeft: '3px solid #10b981' },
                     { bottom: -2, right: -2, borderBottom: '3px solid #10b981', borderRight: '3px solid #10b981' },
                   ].map((s, i) => (
-                    <div key={i} style={{ position: 'absolute', width: '22px', height: '22px', borderRadius: '3px', ...s }} />
+                    <div key={i} style={{ position: 'absolute', width: '20px', height: '20px', borderRadius: '3px', ...s }} />
                   ))}
 
                   {/* Animated laser scan line */}
@@ -620,17 +737,17 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
                   {/* Aim helper text */}
                   <div style={{
                     position: 'absolute',
-                    bottom: '8px',
+                    bottom: '6px',
                     left: 0,
                     right: 0,
                     textAlign: 'center',
-                    fontSize: '0.68rem',
-                    color: 'rgba(255,255,255,0.7)',
+                    fontSize: '0.66rem',
+                    color: 'rgba(255,255,255,0.75)',
                     textShadow: '0 1px 2px rgba(0,0,0,0.8)',
-                    letterSpacing: '0.3px',
+                    letterSpacing: '0.2px',
                     fontWeight: 500
                   }}>
-                    Hold barcode inside this box (15–20cm away)
+                    Align barcode in frame or click Snap below
                   </div>
                 </div>
               </div>
@@ -640,68 +757,149 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
             {isInitializing && !scanError && (
               <div style={{
                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '0.6rem',
+                alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '0.5rem',
                 background: 'rgba(10,15,30,0.85)', backdropFilter: 'blur(3px)'
               }}>
                 <div style={{
-                  width: '38px', height: '38px', border: '3px solid rgba(255,255,255,0.15)',
+                  width: '34px', height: '34px', border: '3px solid rgba(255,255,255,0.15)',
                   borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite'
                 }} />
-                <span style={{ fontSize: '0.84rem', fontWeight: 500 }}>Connecting to camera…</span>
+                <span style={{ fontSize: '0.82rem', fontWeight: 500 }}>Connecting to camera…</span>
               </div>
             )}
 
-            {/* Processing image file spinner */}
-            {isProcessingFile && (
+            {/* Processing picture spinner */}
+            {isProcessingPicture && (
               <div style={{
                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '0.6rem',
-                background: 'rgba(10,15,30,0.85)', backdropFilter: 'blur(3px)'
+                alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '0.5rem',
+                background: 'rgba(10,15,30,0.88)', backdropFilter: 'blur(4px)', zIndex: 30
               }}>
                 <div style={{
-                  width: '38px', height: '38px', border: '3px solid rgba(255,255,255,0.15)',
+                  width: '36px', height: '36px', border: '3px solid rgba(255,255,255,0.15)',
                   borderTopColor: 'var(--accent-amber)', borderRadius: '50%', animation: 'spin 0.8s linear infinite'
                 }} />
-                <span style={{ fontSize: '0.84rem', fontWeight: 500 }}>Analyzing barcode image…</span>
+                <span style={{ fontSize: '0.84rem', fontWeight: 600, color: '#fff' }}>
+                  Analyzing Barcode Photo…
+                </span>
               </div>
             )}
 
             {/* Error overlay */}
-            {scanError && !isInitializing && (
+            {scanError && !isInitializing && !isProcessingPicture && (
               <div style={{
                 position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.94)',
-                padding: '1.25rem', display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-muted)'
+                padding: '1rem', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-muted)',
+                zIndex: 10
               }}>
-                <AlertCircle size={34} color="var(--accent-amber)" style={{ marginBottom: '0.5rem' }} />
-                <p style={{ fontSize: '0.82rem', marginBottom: '0.75rem', lineHeight: 1.4, color: 'var(--text-main)' }}>
+                <AlertCircle size={32} color="var(--accent-amber)" style={{ marginBottom: '0.4rem' }} />
+                <p style={{ fontSize: '0.8rem', marginBottom: '0.65rem', lineHeight: 1.35, color: 'var(--text-main)' }}>
                   {scanError}
                 </p>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                   <button
                     type="button"
                     className="btn-secondary"
                     onClick={() => startScanner(selectedCameraId)}
-                    style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
                   >
-                    <RefreshCw size={13} /> Retry Camera
+                    <RefreshCw size={12} /> Retry Camera
                   </button>
                   <button
                     type="button"
                     className="btn-secondary"
-                    onClick={() => fileInputRef.current && fileInputRef.current.click()}
-                    style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                    onClick={() => nativeCameraInputRef.current && nativeCameraInputRef.current.click()}
+                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
                   >
-                    <Upload size={13} /> Upload Photo
+                    <Camera size={12} /> Take Photo
                   </button>
                 </div>
               </div>
             )}
           </div>
 
+          {/* Photo Capture & Shutter Action Bar */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1.4fr 1fr 1fr',
+            gap: '0.4rem'
+          }}>
+            {/* Primary Snap Live Button */}
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleSnapLivePicture}
+              disabled={isProcessingPicture}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.35rem',
+                fontSize: '0.8rem',
+                padding: '0.5rem 0.6rem',
+                fontWeight: 700,
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 2px 8px rgba(37, 99, 235, 0.25)'
+              }}
+              title="Snap the current camera view to decode barcode"
+            >
+              {isProcessingPicture ? (
+                <Loader size={15} className="spin" />
+              ) : (
+                <Aperture size={15} />
+              )}
+              <span>Snap Picture</span>
+            </button>
+
+            {/* Native High-Res Camera Capture */}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => nativeCameraInputRef.current && nativeCameraInputRef.current.click()}
+              disabled={isProcessingPicture}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.3rem',
+                fontSize: '0.76rem',
+                padding: '0.5rem 0.4rem',
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)'
+              }}
+              title="Open full camera app to take a photo"
+            >
+              <Camera size={14} color="var(--primary)" />
+              <span>Take Photo</span>
+            </button>
+
+            {/* Choose from Gallery / Album */}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              disabled={isProcessingPicture}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.3rem',
+                fontSize: '0.76rem',
+                padding: '0.5rem 0.4rem',
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)'
+              }}
+              title="Upload existing picture from files/photos"
+            >
+              <ImageIcon size={14} color="var(--accent-emerald)" />
+              <span>From Gallery</span>
+            </button>
+          </div>
+
           {/* Keyframe animations */}
           <style>{`
-            @keyframes scanLaser { 0%,100% { top: 12%; opacity: 0.6; } 50% { top: 82%; opacity: 1; } }
+            @keyframes scanLaser { 0%,100% { top: 10%; opacity: 0.5; } 50% { top: 84%; opacity: 1; } }
             @keyframes spin { to { transform: rotate(360deg); } }
             .spin { animation: spin 0.8s linear infinite; }
           `}</style>
@@ -712,7 +910,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
               background: lastScanned.product ? 'var(--accent-emerald-light)' : 'var(--accent-amber-light)',
               border: `1px solid ${lastScanned.product ? 'var(--accent-emerald)' : 'var(--accent-amber)'}`,
               borderRadius: 'var(--radius-md)',
-              padding: '0.65rem 0.85rem',
+              padding: '0.6rem 0.8rem',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -720,7 +918,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
             }}>
               <div>
                 <div style={{ 
-                  fontSize: '0.7rem', 
+                  fontSize: '0.68rem', 
                   fontWeight: 700, 
                   color: lastScanned.product ? 'var(--accent-emerald)' : 'var(--accent-amber)', 
                   textTransform: 'uppercase', 
@@ -729,18 +927,18 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
                   alignItems: 'center',
                   gap: '0.3rem'
                 }}>
-                  <span>{lastScanned.product ? '✓ Matched in catalogue' : '⚠ Code Captured (Not in catalogue)'}</span>
+                  <span>{lastScanned.product ? '✓ Matched in catalogue' : '✓ Code Captured (Not in catalogue)'}</span>
                   <span style={{ opacity: 0.6, fontSize: '0.65rem' }}>• {lastScanned.time}</span>
                 </div>
-                <div style={{ fontWeight: 800, fontSize: '0.92rem' }}>
+                <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>
                   {lastScanned.product ? lastScanned.product.product_name : `Scanned Code: ${lastScanned.code}`}
                 </div>
                 {lastScanned.product ? (
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                     GH₵ {parseFloat(lastScanned.product.retail_price || 0).toFixed(2)} • Stock: {lastScanned.product.stock_quantity} • ISBN: {lastScanned.code}
                   </div>
                 ) : (
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                     Barcode: {lastScanned.code} (Ready to add/process)
                   </div>
                 )}
@@ -755,7 +953,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
               type="text"
               className="form-control"
               inputMode="numeric"
-              placeholder="Or type/paste barcode (or use USB scanner)"
+              placeholder="Or type/paste barcode / ISBN (or use USB scanner)"
               value={manualCode}
               onChange={e => setManualCode(e.target.value)}
               style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
