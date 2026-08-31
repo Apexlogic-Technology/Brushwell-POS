@@ -27,6 +27,7 @@ export default function SellingInterface({
   const [applyTax, setApplyTax] = useState(settings.tax_enabled_default || false);
   const [showTaxBreakdown, setShowTaxBreakdown] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
   const [visibleCount, setVisibleCount] = useState(40);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -77,9 +78,10 @@ export default function SellingInterface({
   }, [filteredProducts, visibleCount]);
 
   // Calculate cart totals & multi-tax breakdown
-  // grossSubtotal = sum of (basePrice × qty) — before any discounts
+  // grossSubtotal = sum of (basePrice × qty) — before any discounts, using per-item priceMode
   const grossSubtotal = cart.reduce((sum, item) => {
-    const basePrice = priceMode === 'wholesale' ? item.wholesale_price : item.retail_price;
+    const mode = item.priceMode || priceMode;
+    const basePrice = mode === 'wholesale' ? (item.wholesale_price || 0) : (item.retail_price || 0);
     return sum + (basePrice * item.quantity);
   }, 0);
 
@@ -119,8 +121,12 @@ export default function SellingInterface({
       updated[existingIdx].quantity += 1;
       setCart(updated);
     } else {
-      setCart([...cart, { ...product, quantity: 1, discount: 0 }]);
+      setCart([...cart, { ...product, quantity: 1, discount: 0, priceMode: priceMode }]);
     }
+  };
+
+  const updateItemPriceMode = (id, mode) => {
+    setCart(cart.map(item => item.id === id ? { ...item, priceMode: mode } : item));
   };
 
   const updateQty = (id, delta) => {
@@ -177,13 +183,15 @@ export default function SellingInterface({
       created_at: nowIso,
       price_mode: priceMode,
       items: cart.map(item => {
-        const basePrice = priceMode === 'wholesale' ? item.wholesale_price : item.retail_price;
+        const mode = item.priceMode || priceMode;
+        const basePrice = mode === 'wholesale' ? (item.wholesale_price || 0) : (item.retail_price || 0);
         const itemDisc = Math.max(0, parseFloat(item.discount) || 0);
         const effectivePrice = Math.max(0, basePrice - itemDisc);
         return {
           id: item.id,
           product_name: item.product_name,
           barcode: item.barcode || '',
+          price_mode: mode,
           price: effectivePrice,
           original_price: basePrice,
           item_discount: itemDisc,
@@ -606,10 +614,12 @@ export default function SellingInterface({
               {/* Item List — No artificial maxHeight cap so all items render clearly */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                 {cart.map(item => {
-                  const basePrice = priceMode === 'wholesale' ? item.wholesale_price : item.retail_price;
+                  const itemMode = item.priceMode || priceMode;
+                  const basePrice = itemMode === 'wholesale' ? (item.wholesale_price || 0) : (item.retail_price || 0);
                   const itemDisc = Math.max(0, parseFloat(item.discount) || 0);
                   const effectiveUnitPrice = Math.max(0, basePrice - itemDisc);
                   const lineTotal = effectiveUnitPrice * item.quantity;
+                  const hasWholesale = (item.wholesale_price || 0) > 0;
 
                   return (
                     <div key={item.id} style={{
@@ -619,13 +629,38 @@ export default function SellingInterface({
                       background: 'var(--bg-surface-elevated)',
                       padding: '0.65rem 0.8rem',
                       borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-light)'
+                      border: `1px solid ${itemMode === 'wholesale' ? 'var(--accent-purple)' : 'var(--border-light)'}`
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ flex: 1, minWidth: 0, paddingRight: '0.5rem' }}>
                           <div style={{ fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {item.product_name}
                           </div>
+                          {/* Per-item Price Mode Toggle */}
+                          {hasWholesale && (
+                            <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.2rem', marginBottom: '0.15rem' }}>
+                              <button
+                                type="button"
+                                onClick={() => updateItemPriceMode(item.id, 'retail')}
+                                style={{
+                                  fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.4rem',
+                                  borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer',
+                                  background: itemMode === 'retail' ? 'var(--primary)' : 'var(--bg-surface)',
+                                  color: itemMode === 'retail' ? '#fff' : 'var(--text-muted)'
+                                }}
+                              >Retail</button>
+                              <button
+                                type="button"
+                                onClick={() => updateItemPriceMode(item.id, 'wholesale')}
+                                style={{
+                                  fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.4rem',
+                                  borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer',
+                                  background: itemMode === 'wholesale' ? 'var(--accent-purple)' : 'var(--bg-surface)',
+                                  color: itemMode === 'wholesale' ? '#fff' : 'var(--text-muted)'
+                                }}
+                              >Wholesale</button>
+                            </div>
+                          )}
                           <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                             {currencySymbol}{basePrice.toFixed(2)}
                             {itemDisc > 0 && <span style={{ color: 'var(--accent-rose)', fontWeight: 700 }}> (-{currencySymbol}{itemDisc.toFixed(2)})</span>}
