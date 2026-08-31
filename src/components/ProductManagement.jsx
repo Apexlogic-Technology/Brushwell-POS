@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { 
   Package, Plus, Search, Edit3, Trash2, Barcode as BarcodeIcon, 
   Upload, Calendar, Tag, AlertCircle, Clock, RefreshCw, Check, Camera, Filter, 
-  FolderPlus, X, FileSpreadsheet, Loader, Download, LayoutGrid, List, Sliders, Zap, Mic
+  FolderPlus, X, FileSpreadsheet, Loader, Download, LayoutGrid, List, Sliders, Zap
 } from 'lucide-react';
 import { 
   saveProduct as saveProductToDB, 
@@ -14,7 +14,6 @@ import {
   deleteAllProducts
 } from '../services/supabaseService';
 import BarcodeScannerModal from './BarcodeScannerModal';
-import VoiceProductModal from './VoiceProductModal';
 
 const DEFAULT_CATEGORIES = [
   { id: 'cat-gh-1',  name: 'Crèche & Nursery (KG 1 - 2)' },
@@ -53,7 +52,6 @@ export default function ProductManagement({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategoryInput, setCustomCategoryInput] = useState('');
-  const [isVoiceProductOpen, setIsVoiceProductOpen] = useState(false);
 
   // Bulk Import state
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -469,28 +467,6 @@ export default function ProductManagement({
         </div>
 
         <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-          {/* Voice Add Product Button */}
-          <button
-            type="button"
-            onClick={() => setIsVoiceProductOpen(true)}
-            title="Add product by voice"
-            style={{
-              background: 'linear-gradient(135deg, var(--accent-purple), hsl(265,83%,45%))',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 'var(--radius-md)',
-              padding: '0.45rem 0.75rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.3rem',
-              fontSize: '0.8rem',
-              fontWeight: 700
-            }}
-          >
-            <Mic size={16} /> Voice Add
-          </button>
-
           {/* Primary Add Button */}
           <button 
             type="button"
@@ -1325,33 +1301,6 @@ export default function ProductManagement({
           </div>
         </div>
       )}
-
-      {/* Voice Product Modal */}
-      <VoiceProductModal
-        isOpen={isVoiceProductOpen}
-        onClose={() => setIsVoiceProductOpen(false)}
-        existingCategories={allCategories.map(c => c.name)}
-        onProductAdded={async (product) => {
-          try {
-            const payload = {
-              product_name: product.product_name,
-              retail_price: parseFloat(product.retail_price) || 0,
-              wholesale_price: parseFloat(product.wholesale_price) || 0,
-              stock_quantity: parseInt(product.stock_quantity, 10) || 0,
-              barcode: product.barcode || '',
-              category_name: product.category || 'Uncategorized',
-              category_id: 'cat-' + (product.category || 'uncategorized').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-              publisher: '',
-              product_image: '',
-              expiry_date: ''
-            };
-            await saveProductToDB(payload);
-            if (onRefreshProducts) await onRefreshProducts();
-          } catch (err) {
-            alert('Error saving voice product: ' + err.message);
-          }
-        }}
-      />
 
     </div>
   );
