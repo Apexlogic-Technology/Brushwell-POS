@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Search, ShoppingCart, Plus, Minus, Trash2, Tag, 
   CreditCard, DollarSign, Smartphone, Check, Sparkles, 
-  AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon, Mic
+  AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon, Mic, BookOpen
 } from 'lucide-react';
 import { processCheckout, DEFAULT_TAX_TYPES } from '../services/supabaseService';
 import VoiceSellingModal from './VoiceSellingModal';
@@ -398,17 +398,45 @@ export default function SellingInterface({
               }}
             >
               <div style={{ position: 'relative', marginBottom: '0.5rem' }}>
-                <img 
-                  src={product.product_image || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=200'} 
-                  alt={product.product_name}
+                {product.product_image ? (
+                  <img 
+                    src={product.product_image} 
+                    alt={product.product_name}
+                    style={{
+                      width: '100%',
+                      height: '90px',
+                      objectFit: 'cover',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-surface-elevated)'
+                    }}
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      if (e.currentTarget.nextSibling) {
+                        e.currentTarget.nextSibling.style.display = 'flex';
+                      }
+                    }}
+                  />
+                ) : null}
+
+                {/* Blank Image Placeholder */}
+                <div 
                   style={{
                     width: '100%',
                     height: '90px',
-                    objectFit: 'cover',
                     borderRadius: 'var(--radius-md)',
-                    background: 'var(--border-subtle)'
+                    background: 'linear-gradient(135deg, var(--bg-surface-elevated), var(--border-subtle))',
+                    border: '1px solid var(--border-light)',
+                    display: product.product_image ? 'none' : 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.25rem',
+                    color: 'var(--text-subtle)'
                   }}
-                />
+                >
+                  <BookOpen size={24} style={{ opacity: 0.35 }} />
+                  <span style={{ fontSize: '0.62rem', fontWeight: 700, opacity: 0.5, letterSpacing: '0.05em' }}>BOOK</span>
+                </div>
 
                 <span className={`badge ${isLowStock ? 'badge-rose' : 'badge-emerald'}`} style={{
                   position: 'absolute',
