@@ -2,9 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { 
   Search, ShoppingCart, Plus, Minus, Trash2, Tag, 
   CreditCard, DollarSign, Smartphone, Check, Sparkles, 
-  AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon
+  AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon, Mic
 } from 'lucide-react';
 import { processCheckout, DEFAULT_TAX_TYPES } from '../services/supabaseService';
+import VoiceSellingModal from './VoiceSellingModal';
 
 export default function SellingInterface({ 
   products, 
@@ -15,6 +16,7 @@ export default function SellingInterface({
   onCheckoutSuccess,
   onOpenScanner
 }) {
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [selectedCat, setSelectedCat] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [priceMode, setPriceMode] = useState('retail');
@@ -263,8 +265,30 @@ export default function SellingInterface({
               placeholder="Search title, author or ISBN..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '2.1rem', paddingRight: onOpenScanner ? '2.4rem' : '0.75rem', fontSize: '0.85rem' }}
+              style={{ paddingLeft: '2.1rem', paddingRight: onOpenScanner ? '5rem' : '2.4rem', fontSize: '0.85rem' }}
             />
+            {/* Voice mic button */}
+            <button
+              type="button"
+              onClick={() => setIsVoiceModalOpen(true)}
+              title="Voice Selling – speak to add products"
+              style={{
+                position: 'absolute',
+                right: onOpenScanner ? '40px' : '6px',
+                background: 'var(--accent-purple)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.35rem 0.5rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 0.2s'
+              }}
+            >
+              <Mic size={16} />
+            </button>
             {onOpenScanner && (
               <button
                 type="button"
@@ -881,6 +905,32 @@ export default function SellingInterface({
         </div>
       )}
 
+      {/* Voice Selling Modal */}
+      <VoiceSellingModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        products={products}
+        cart={cart}
+        onAddToCart={(product, qty) => {
+          setCart(prev => {
+            const existing = prev.find(c => c.id === product.id);
+            if (existing) {
+              return prev.map(c => c.id === product.id ? { ...c, quantity: c.quantity + qty } : c);
+            }
+            return [...prev, { ...product, quantity: qty }];
+          });
+        }}
+        onRemoveFromCart={(productId) => {
+          setCart(prev => prev.filter(c => c.id !== productId));
+        }}
+        onSetPriceMode={(mode) => setPriceMode(mode)}
+        onApplyDiscount={(amount) => setOrderDiscount(Number(amount) || 0)}
+        onToggleTax={(val) => setApplyTax(val)}
+        onClearCart={() => setCart([])}
+        onCheckout={() => { setIsCartOpen(true); setIsVoiceModalOpen(false); }}
+      />
+
     </div>
   );
 }
+
