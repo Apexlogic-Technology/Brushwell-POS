@@ -278,8 +278,9 @@ export default function ProductManagement({
           .filter(r => (r['Books'] || r['Product Name'] || r['Title'] || '').toString().trim() !== '')
           .map(r => ({
             product_name:    (r['Books'] || r['Product Name'] || r['Title'] || '').toString().trim(),
-            category_name:   (r['Grade'] || r['Category'] || 'General').toString().trim(),
-            category_id:     'cat-' + (r['Grade'] || r['Category'] || 'General').toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            grade:           (r['Grade'] || r['Class'] || r['Level'] || '').toString().trim(),
+            category_name:   (r['Grade'] || r['Class'] || r['Category'] || 'General').toString().trim(),
+            category_id:     'cat-' + (r['Grade'] || r['Class'] || r['Category'] || 'General').toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'),
             publisher:       (r['Publisher'] || r['Author'] || '').toString().trim(),
             retail_price:    parseFloat(r['Retail'] || r['Price'] || 0) || 0,
             wholesale_price: parseFloat(r['Wholesale'] || 0) || (parseFloat(r['Retail'] || 0) * 0.8) || 0,

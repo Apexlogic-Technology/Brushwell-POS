@@ -40,6 +40,14 @@ export default function SellingInterface({
   const activeTaxTypes = taxTypes.filter(t => t.enabled);
   const totalTaxRatePct = activeTaxTypes.reduce((sum, t) => sum + (parseFloat(t.rate_pct) || 0), 0);
 
+  // Helper to extract the Class / Grade from any product field
+  const getProductGrade = (p) => {
+    if (!p) return '';
+    const raw = (p.grade || p.class_name || p.level || p.category_name || p.category || '').toString().trim();
+    if (!raw || raw.toLowerCase() === 'general' || raw.toLowerCase() === 'uncategorized') return '';
+    return raw;
+  };
+
   // Helper to expand educational level synonyms (e.g., "Class 3" <-> "Book 3" <-> "Basic 3" <-> "BS 3")
   const getGradeSynonyms = (text) => {
     if (!text) return '';
@@ -205,10 +213,16 @@ export default function SellingInterface({
         const basePrice = mode === 'wholesale' ? (item.wholesale_price || 0) : (item.retail_price || 0);
         const itemDisc = Math.max(0, parseFloat(item.discount) || 0);
         const effectivePrice = Math.max(0, basePrice - itemDisc);
+        const grade = getProductGrade(item);
+        const displayName = (grade && !item.product_name.toLowerCase().includes(grade.toLowerCase()))
+          ? `${item.product_name} (${grade})`
+          : item.product_name;
+
         return {
           id: item.id,
-          product_name: item.product_name,
+          product_name: displayName,
           barcode: item.barcode || '',
+          grade: grade,
           price_mode: mode,
           price: effectivePrice,
           original_price: basePrice,
@@ -449,35 +463,55 @@ export default function SellingInterface({
                 )}
               </div>
 
-              {/* Title + Publisher + ISBN */}
+              {/* Title + Prominent Grade/Class Badge + Publisher */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
-                  fontWeight: 700, fontSize: '0.83rem', lineHeight: 1.25,
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  color: inCartItem ? 'var(--primary)' : 'var(--text-main)'
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  flexWrap: 'wrap'
                 }}>
-                  {product.product_name}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
-                  {product.publisher && (
-                    <span style={{ fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {product.publisher}
-                    </span>
-                  )}
-                  {product.category_name && product.category_name !== 'General' && (
+                  <span style={{
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    color: inCartItem ? 'var(--primary)' : 'var(--text-main)'
+                  }}>
+                    {product.product_name}
+                  </span>
+
+                  {/* Prominent High-Contrast Class/Grade Badge */}
+                  {getProductGrade(product) && (
                     <span style={{
-                      fontSize: '0.65rem',
-                      fontWeight: 700,
-                      padding: '0.05rem 0.35rem',
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      padding: '0.12rem 0.45rem',
                       borderRadius: 'var(--radius-sm)',
-                      background: 'var(--bg-surface)',
-                      border: '1px solid var(--border-light)',
-                      color: 'var(--text-muted)'
+                      background: 'linear-gradient(135deg, var(--accent-purple), hsl(265,83%,45%))',
+                      color: '#ffffff',
+                      letterSpacing: '0.02em',
+                      whiteSpace: 'nowrap',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.15)'
                     }}>
-                      {product.category_name}
+                      {getProductGrade(product)}
                     </span>
                   )}
                 </div>
+
+                {product.publisher && (
+                  <div style={{
+                    fontSize: '0.68rem',
+                    color: 'var(--text-muted)',
+                    fontWeight: 600,
+                    marginTop: '0.15rem',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}>
+                    {product.publisher}
+                  </div>
+                )}
               </div>
 
               {/* Stock badge */}
@@ -621,8 +655,27 @@ export default function SellingInterface({
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ flex: 1, minWidth: 0, paddingRight: '0.5rem' }}>
-                          <div style={{ fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {item.product_name}
+                          <div style={{
+                            fontWeight: 700,
+                            fontSize: '0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            flexWrap: 'wrap'
+                          }}>
+                            <span>{item.product_name}</span>
+                            {getProductGrade(item) && (
+                              <span style={{
+                                fontSize: '0.65rem',
+                                fontWeight: 800,
+                                padding: '0.08rem 0.35rem',
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'var(--accent-purple)',
+                                color: '#fff'
+                              }}>
+                                {getProductGrade(item)}
+                              </span>
+                            )}
                           </div>
                           {/* Per-item Price Mode Toggle */}
                           {hasWholesale && (
