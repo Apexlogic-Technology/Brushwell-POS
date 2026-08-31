@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Search, ShoppingCart, Plus, Minus, Trash2, Tag, 
   CreditCard, DollarSign, Smartphone, Check, Sparkles, 
-  AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown
+  AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon
 } from 'lucide-react';
 import { processCheckout, DEFAULT_TAX_TYPES } from '../services/supabaseService';
 
@@ -255,16 +255,39 @@ export default function SellingInterface({
           </div>
 
           {/* Search Bar */}
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)' }} />
+          <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+            <Search size={16} style={{ position: 'absolute', left: '10px', color: 'var(--text-subtle)' }} />
             <input 
               type="text" 
               className="form-control"
               placeholder="Search title, author or ISBN..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '2.1rem', fontSize: '0.85rem' }}
+              style={{ paddingLeft: '2.1rem', paddingRight: onOpenScanner ? '2.4rem' : '0.75rem', fontSize: '0.85rem' }}
             />
+            {onOpenScanner && (
+              <button
+                type="button"
+                onClick={onOpenScanner}
+                title="Scan ISBN Barcode with Camera"
+                style={{
+                  position: 'absolute',
+                  right: '6px',
+                  background: 'var(--primary-light)',
+                  color: 'var(--primary)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.35rem 0.5rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.2s'
+                }}
+              >
+                <BarcodeIcon size={16} />
+              </button>
+            )}
           </div>
         </div>
 
