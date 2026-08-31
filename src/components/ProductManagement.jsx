@@ -46,6 +46,7 @@ export default function ProductManagement({
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [scanMode, setScanMode] = useState('new'); // 'new' | 'form'
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -196,10 +197,14 @@ export default function ProductManagement({
 
   const handleScanToAddSuccess = (code, matchedProduct) => {
     setIsScanModalOpen(false);
-    if (matchedProduct) {
-      openFormModal(matchedProduct);
+    if (scanMode === 'form') {
+      setFormData(prev => ({ ...prev, barcode: code }));
     } else {
-      openFormModal(null, code);
+      if (matchedProduct) {
+        openFormModal(matchedProduct);
+      } else {
+        openFormModal(null, code);
+      }
     }
   };
 
@@ -536,7 +541,7 @@ export default function ProductManagement({
             <button
               type="button"
               className="popover-menu-item"
-              onClick={() => { setIsToolsMenuOpen(false); setIsScanModalOpen(true); }}
+              onClick={() => { setIsToolsMenuOpen(false); setScanMode('new'); setIsScanModalOpen(true); }}
             >
               <Camera size={16} color="var(--primary)" />
               <span>Scan Barcode to Add</span>
@@ -596,7 +601,7 @@ export default function ProductManagement({
         />
         <button
           type="button"
-          onClick={() => setIsScanModalOpen(true)}
+          onClick={() => { setScanMode('new'); setIsScanModalOpen(true); }}
           style={{
             position: 'absolute',
             right: '6px',
@@ -1065,14 +1070,58 @@ export default function ProductManagement({
                   </div>
 
                   <div className="form-group">
-                    <label>Barcode / ISBN</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="Auto or scanned barcode"
-                      value={formData.barcode}
-                      onChange={e => setFormData({ ...formData, barcode: e.target.value })}
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                      <label style={{ margin: 0, fontWeight: 600 }}>Barcode / ISBN</label>
+                      <button
+                        type="button"
+                        onClick={() => { setScanMode('form'); setIsScanModalOpen(true); }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--primary)',
+                          fontSize: '0.76rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                          padding: 0
+                        }}
+                      >
+                        <Camera size={13} /> Scan Barcode
+                      </button>
+                    </div>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Auto or scanned barcode"
+                        value={formData.barcode}
+                        onChange={e => setFormData({ ...formData, barcode: e.target.value })}
+                        style={{ paddingRight: '2.5rem', fontFamily: 'var(--font-mono)' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setScanMode('form'); setIsScanModalOpen(true); }}
+                        title="Scan Barcode with Camera"
+                        style={{
+                          position: 'absolute',
+                          right: '6px',
+                          background: 'var(--primary-light)',
+                          color: 'var(--primary)',
+                          border: 'none',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '0.35rem 0.5rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'background 0.2s'
+                        }}
+                      >
+                        <Camera size={15} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

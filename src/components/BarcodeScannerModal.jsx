@@ -378,7 +378,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1000 }}>
       <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
 
         {/* CSS for clean scanner region rendering */}
