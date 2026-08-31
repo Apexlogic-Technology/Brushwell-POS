@@ -14,6 +14,7 @@
     "canvas-confetti": "^1.9.4",
     "html5-qrcode": "^2.3.8",
     "jsbarcode": "^3.11.6",
+    "jspdf": "^4.2.1",
     "lucide-react": "^1.16.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

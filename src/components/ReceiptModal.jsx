@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { X, Printer, Bluetooth, Share2, Check, MessageSquare, Phone, Home, ArrowLeft } from 'lucide-react';
+import { X, Printer, Bluetooth, Share2, Check, MessageSquare, Phone, Home, ArrowLeft, FileText, Download } from 'lucide-react';
 import { printBluetoothReceipt, printSystemWebReceipt } from '../services/printerService';
+import { downloadReceiptPDF, shareReceiptPDFViaWhatsApp, formatWhatsAppPhone } from '../services/pdfService';
 
 export default function ReceiptModal({ isOpen, onClose, order, settings }) {
   const [btStatus, setBtStatus] = useState('idle');
   const [phoneInput, setPhoneInput] = useState('');
+  const [isSharingPdf, setIsSharingPdf] = useState(false);
+  const [pdfSuccessNotice, setPdfSuccessNotice] = useState('');
 
   useEffect(() => {
     if (order) {
       setPhoneInput(order.customer_phone || '');
+      setPdfSuccessNotice('');
     }
   }, [order]);
 
@@ -33,6 +37,31 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
     printSystemWebReceipt(order, settings);
   };
 
+  const handleDownloadPDF = () => {
+    downloadReceiptPDF(order, settings);
+    setPdfSuccessNotice('PDF Receipt downloaded successfully!');
+    setTimeout(() => setPdfSuccessNotice(''), 4000);
+  };
+
+  const handleWhatsAppPDFShare = async () => {
+    setIsSharingPdf(true);
+    try {
+      const res = await shareReceiptPDFViaWhatsApp(order, settings, phoneInput);
+      if (res.method === 'native_share') {
+        setPdfSuccessNotice('PDF Receipt shared via system share sheet!');
+      } else {
+        setPdfSuccessNotice('PDF downloaded & WhatsApp chat opened!');
+      }
+      setTimeout(() => setPdfSuccessNotice(''), 4000);
+    } catch (err) {
+      console.error('Failed to share PDF receipt:', err);
+      // Fallback
+      downloadReceiptPDF(order, settings);
+    } finally {
+      setIsSharingPdf(false);
+    }
+  };
+
   const generateReceiptText = () => {
     const dateStr = new Date(order.timestamp || order.created_at || Date.now()).toLocaleString();
     const itemsStr = (order.items || []).map(i => `• ${i.product_name} (x${i.quantity}) = ${currencySymbol}${(i.price * i.quantity).toFixed(2)}`).join('\n');
@@ -41,29 +70,7 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
     return `🧾 *RECEIPT #${order.order_id}*\n*${settings.store_name || 'BRUSHWELL BOOKS'}*\n\nCustomer: ${custName}\nDate: ${dateStr}\nCashier: ${order.cashier_name || 'Staff'}\nTier: ${order.price_mode === 'wholesale' ? 'WHOLESALE' : 'RETAIL'}\n\n*ITEMS:*\n${itemsStr}\n\nSubtotal: ${currencySymbol}${Number(order.subtotal || 0).toFixed(2)}\n${order.discount ? `Discount: -${currencySymbol}${Number(order.discount).toFixed(2)}\n` : ''}${order.apply_tax || order.tax_applied ? `Tax: +${currencySymbol}${Number(order.tax_total || order.tax_amount || 0).toFixed(2)}\n` : ''}*TOTAL PAID: ${currencySymbol}${Number(order.total || 0).toFixed(2)}*\nPayment Method: ${order.payment_method || 'Cash'}\n\nThank you for shopping with ${settings.store_name || 'Brushwell Books'}!`;
   };
 
-  const cleanPhoneForWhatsApp = (rawPhone) => {
-    if (!rawPhone) return '';
-    let digits = rawPhone.replace(/\D/g, '');
-    if (digits.startsWith('0') && digits.length === 10) {
-      digits = '233' + digits.substring(1);
-    }
-    return digits;
-  };
-
-  const handleWhatsAppShare = () => {
-    const text = generateReceiptText();
-    const targetPhone = cleanPhoneForWhatsApp(phoneInput);
-
-    if (targetPhone) {
-      const whatsappUrl = `https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodeURIComponent(text)}`;
-      window.open(whatsappUrl, '_blank');
-    } else {
-      const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-      window.open(whatsappUrl, '_blank');
-    }
-  };
-
-  const handleShare = async () => {
+  const handleShareText = async () => {
     const text = generateReceiptText();
     if (navigator.share) {
       try {
@@ -170,34 +177,59 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
             </div>
           </div>
 
+          {pdfSuccessNotice && (
+            <div style={{
+              background: 'var(--accent-emerald-light)',
+              border: '1px solid var(--accent-emerald)',
+              color: 'var(--accent-emerald)',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              padding: '0.55rem 0.75rem',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              marginBottom: '0.5rem'
+            }}>
+              <Check size={16} /> {pdfSuccessNotice}
+            </div>
+          )}
+
           {/* Action Buttons */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
 
-            {/* Instant WhatsApp Share */}
+            {/* Instant WhatsApp PDF Share */}
             <div style={{
               background: 'var(--bg-surface-elevated)',
-              border: '1px solid #25D366',
+              border: '1.5px solid #25D366',
               borderRadius: 'var(--radius-md)',
               padding: '0.75rem',
               display: 'flex',
               flexDirection: 'column',
-              gap: '0.5rem'
+              gap: '0.5rem',
+              boxShadow: '0 2px 10px rgba(37, 211, 102, 0.12)'
             }}>
-              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#25D366', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <Phone size={14} /> Send Directly to WhatsApp (No Contact Save Needed)
+              <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Phone size={14} /> Send PDF Receipt via WhatsApp
+                </span>
+                <span style={{ fontSize: '0.68rem', background: '#25D366', color: '#fff', padding: '1px 6px', borderRadius: 'var(--radius-full)', fontWeight: 700 }}>
+                  PDF Document
+                </span>
               </div>
               <div style={{ display: 'flex', gap: '0.4rem' }}>
                 <input
                   type="tel"
                   className="form-control"
-                  placeholder="Enter customer WhatsApp # (e.g. 0241234567)"
+                  placeholder="Enter WhatsApp # (e.g. 0241234567)"
                   value={phoneInput}
                   onChange={e => setPhoneInput(e.target.value)}
                   style={{ fontSize: '0.85rem', flex: 1 }}
                 />
                 <button
                   type="button"
-                  onClick={handleWhatsAppShare}
+                  onClick={handleWhatsAppPDFShare}
+                  disabled={isSharingPdf}
                   style={{
                     background: '#25D366',
                     color: '#ffffff',
@@ -206,15 +238,41 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
                     fontWeight: 700,
                     fontSize: '0.82rem',
                     whiteSpace: 'nowrap',
-                    boxShadow: '0 2px 8px rgba(37, 211, 102, 0.3)'
+                    boxShadow: '0 2px 8px rgba(37, 211, 102, 0.3)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem'
                   }}
                 >
-                  <MessageSquare size={16} /> Send
+                  <MessageSquare size={16} /> {isSharingPdf ? 'Sharing...' : 'Share PDF'}
                 </button>
               </div>
             </div>
 
-            {/* Printing Options */}
+            {/* Direct PDF Download & Share Sheet Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleDownloadPDF}
+                style={{ justifyContent: 'center', fontSize: '0.78rem', padding: '0.6rem 0.5rem', gap: '0.35rem' }}
+              >
+                <Download size={15} color="var(--primary)" /> Download PDF
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleShareText}
+                style={{ justifyContent: 'center', fontSize: '0.78rem', padding: '0.6rem 0.5rem', gap: '0.35rem' }}
+              >
+                <Share2 size={15} /> Copy Text
+              </button>
+            </div>
+
+            {/* Thermal & System Printing Options */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <button
                 type="button"
@@ -226,7 +284,7 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
                 {btStatus === 'printing' ? (
                   <><Bluetooth size={16} style={{ animation: 'spin 1s linear infinite' }} /> Printing...</>
                 ) : (
-                  <><Bluetooth size={16} /> Bluetooth Print</>
+                  <><Bluetooth size={16} /> Bluetooth Thermal</>
                 )}
               </button>
 
@@ -239,10 +297,6 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
                 <Printer size={16} /> System Print
               </button>
             </div>
-
-            <button type="button" className="btn-secondary" onClick={handleShare} style={{ width: '100%', justifyContent: 'center', fontSize: '0.8rem' }}>
-              <Share2 size={16} /> Copy / System Share Text
-            </button>
 
             {/* Prominent Large Return to Home / Done Button */}
             <button

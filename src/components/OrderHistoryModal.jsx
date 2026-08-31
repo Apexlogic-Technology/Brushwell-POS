@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { X, Search, Clock, Printer, RotateCcw, FileText, CheckCircle2, ChevronRight } from 'lucide-react';
+import { X, Search, Clock, Printer, RotateCcw, FileText, CheckCircle2, ChevronRight, Download, MessageSquare } from 'lucide-react';
 import { fetchOrders } from '../services/supabaseService';
+import { downloadReceiptPDF, shareReceiptPDFViaWhatsApp } from '../services/pdfService';
 
-export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrder, onSelectRefundOrder, isAdmin }) {
+export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrder, onSelectRefundOrder, isAdmin, settings = {} }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPeriod, setFilterPeriod] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -185,8 +186,9 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                       )}
 
                       {/* Action Buttons */}
-                      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
                         <button
+                          type="button"
                           className="btn-primary"
                           style={{ flex: 1, padding: '0.35rem 0.6rem', fontSize: '0.78rem' }}
                           onClick={(e) => {
@@ -194,11 +196,49 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                             onSelectReprintOrder(order);
                           }}
                         >
-                          <Printer size={14} /> Reprint Receipt
+                          <Printer size={14} /> View / Print Receipt
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '0.35rem 0.6rem', fontSize: '0.78rem', gap: '0.3rem' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadReceiptPDF(order, settings);
+                          }}
+                          title="Download PDF Receipt"
+                        >
+                          <Download size={14} color="var(--primary)" /> PDF
+                        </button>
+
+                        <button
+                          type="button"
+                          style={{
+                            padding: '0.35rem 0.6rem',
+                            fontSize: '0.78rem',
+                            gap: '0.3rem',
+                            background: '#25D366',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            fontWeight: 700
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            shareReceiptPDFViaWhatsApp(order, settings, order.customer_phone);
+                          }}
+                          title="Share PDF via WhatsApp"
+                        >
+                          <MessageSquare size={14} /> WhatsApp
                         </button>
 
                         {isAdmin && !isRefund && (
                           <button
+                            type="button"
                             className="btn-danger"
                             style={{ padding: '0.35rem 0.6rem', fontSize: '0.78rem' }}
                             onClick={(e) => {

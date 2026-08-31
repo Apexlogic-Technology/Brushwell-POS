@@ -442,6 +442,7 @@ export default function App() {
         onSelectReprintOrder={handleReprintOrder}
         onSelectRefundOrder={handleRefundOrder}
         isAdmin={isAdmin}
+        settings={settings}
       />
       <RefundModal
         isOpen={isRefundOpen}
