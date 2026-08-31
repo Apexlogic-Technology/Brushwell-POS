@@ -391,15 +391,10 @@ export default function SellingInterface({
         </div>
       </div>
 
-      {/* Book Catalog Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-        gap: '0.75rem',
-        alignContent: 'start'
-      }}>
+      {/* Book Catalog List */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
         {displayedProducts.map(product => {
-          const price = priceMode === 'wholesale' ? product.wholesale_price : product.retail_price;
+          const price = priceMode === 'wholesale' ? (product.wholesale_price || 0) : (product.retail_price || 0);
           const isLowStock = product.stock_quantity <= 10;
           const isOutOfStock = product.stock_quantity <= 0;
           const inCartItem = cart.find(c => c.id === product.id);
@@ -408,114 +403,76 @@ export default function SellingInterface({
             <div
               key={product.id}
               onClick={() => !isOutOfStock && addToCart(product)}
-              className="card-glass"
               style={{
-                padding: '0.75rem',
                 display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '0.6rem',
+                padding: '0.55rem 0.75rem',
+                borderRadius: 'var(--radius-md)',
+                border: inCartItem ? '2px solid var(--primary)' : '1px solid var(--border-light)',
+                background: inCartItem ? 'var(--primary-light)' : 'var(--bg-surface-elevated)',
                 cursor: isOutOfStock ? 'not-allowed' : 'pointer',
                 opacity: isOutOfStock ? 0.5 : 1,
-                position: 'relative',
-                transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                border: inCartItem ? '2px solid var(--primary)' : '1px solid var(--border-light)'
+                transition: 'background 0.12s ease, border-color 0.12s ease',
               }}
             >
-              <div style={{ position: 'relative', marginBottom: '0.5rem' }}>
+              {/* Book icon */}
+              <div style={{
+                width: '36px', height: '36px', flexShrink: 0,
+                borderRadius: 'var(--radius-sm)',
+                background: inCartItem ? 'var(--primary)' : 'linear-gradient(135deg, var(--bg-surface), var(--border-subtle))',
+                border: '1px solid var(--border-light)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
                 {product.product_image ? (
-                  <img 
-                    src={product.product_image} 
-                    alt={product.product_name}
-                    style={{
-                      width: '100%',
-                      height: '90px',
-                      objectFit: 'cover',
-                      borderRadius: 'var(--radius-md)',
-                      background: 'var(--bg-surface-elevated)'
-                    }}
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                      if (e.currentTarget.nextSibling) {
-                        e.currentTarget.nextSibling.style.display = 'flex';
-                      }
-                    }}
-                  />
-                ) : null}
-
-                {/* Blank Image Placeholder */}
-                <div 
-                  style={{
-                    width: '100%',
-                    height: '90px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'linear-gradient(135deg, var(--bg-surface-elevated), var(--border-subtle))',
-                    border: '1px solid var(--border-light)',
-                    display: product.product_image ? 'none' : 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.25rem',
-                    color: 'var(--text-subtle)'
-                  }}
-                >
-                  <BookOpen size={24} style={{ opacity: 0.35 }} />
-                  <span style={{ fontSize: '0.62rem', fontWeight: 700, opacity: 0.5, letterSpacing: '0.05em' }}>BOOK</span>
-                </div>
-
-                <span className={`badge ${isLowStock ? 'badge-rose' : 'badge-emerald'}`} style={{
-                  position: 'absolute',
-                  bottom: '4px',
-                  right: '4px',
-                  fontSize: '0.65rem'
-                }}>
-                  {isOutOfStock ? 'Out of stock' : `${product.stock_quantity} left`}
-                </span>
+                  <img src={product.product_image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
+                ) : (
+                  <BookOpen size={16} style={{ opacity: inCartItem ? 1 : 0.35, color: inCartItem ? '#fff' : 'var(--text-subtle)' }} />
+                )}
               </div>
 
-              <div>
-                <h4 style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, marginBottom: '0.2rem' }}>
+              {/* Title + Publisher + ISBN */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontWeight: 700, fontSize: '0.83rem', lineHeight: 1.25,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  color: inCartItem ? 'var(--primary)' : 'var(--text-main)'
+                }}>
                   {product.product_name}
-                </h4>
+                </div>
                 {product.publisher && (
-                  <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 600, marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {product.publisher}
                   </div>
                 )}
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', fontFamily: 'var(--font-mono)' }}>
-                  ISBN: {product.barcode}
-                </div>
               </div>
 
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginTop: '0.5rem',
-                paddingTop: '0.4rem',
-                borderTop: '1px dashed var(--border-light)'
-              }}>
-                <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--primary)' }}>
-                  {currencySymbol}{price.toFixed(2)}
-                </div>
+              {/* Stock badge */}
+              <span className={`badge ${isOutOfStock ? 'badge-rose' : isLowStock ? 'badge-rose' : 'badge-emerald'}`}
+                style={{ fontSize: '0.62rem', flexShrink: 0 }}>
+                {isOutOfStock ? 'Out' : `${product.stock_quantity}`}
+              </span>
 
+              {/* Price */}
+              <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--primary)', flexShrink: 0, minWidth: '58px', textAlign: 'right' }}>
+                {currencySymbol}{price.toFixed(2)}
+              </div>
+
+              {/* Cart qty / Add button */}
+              <div style={{ flexShrink: 0 }}>
                 {inCartItem ? (
                   <span style={{
-                    background: 'var(--primary)',
-                    color: '#fff',
+                    background: 'var(--primary)', color: '#fff',
                     borderRadius: 'var(--radius-full)',
-                    width: '24px',
-                    height: '24px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '0.75rem',
-                    fontWeight: 800
+                    width: '26px', height: '26px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '0.75rem', fontWeight: 800
                   }}>
                     {inCartItem.quantity}
                   </span>
                 ) : (
-                  <button className="btn-primary" style={{ width: '28px', height: '28px', padding: 0, borderRadius: 'var(--radius-md)' }}>
-                    <Plus size={16} />
+                  <button className="btn-primary" style={{ width: '28px', height: '28px', padding: 0, borderRadius: 'var(--radius-md)', flexShrink: 0 }}>
+                    <Plus size={15} />
                   </button>
                 )}
               </div>
@@ -524,16 +481,14 @@ export default function SellingInterface({
         })}
 
         {filteredProducts.length > visibleCount && (
-          <div style={{ gridColumn: '1 / -1', textAlignment: 'center', padding: '0.75rem 0' }}>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setVisibleCount(prev => prev + 60)}
-              style={{ width: '100%', padding: '0.65rem', fontWeight: 700, fontSize: '0.85rem' }}
-            >
-              📥 Load More Books ({filteredProducts.length - visibleCount} remaining)
-            </button>
-          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setVisibleCount(prev => prev + 80)}
+            style={{ width: '100%', padding: '0.65rem', fontWeight: 700, fontSize: '0.85rem', marginTop: '0.25rem' }}
+          >
+            📥 Load More Books ({filteredProducts.length - visibleCount} remaining)
+          </button>
         )}
       </div>
 
