@@ -15,18 +15,6 @@ export function isSpeechSynthesisSupported() {
   return Boolean('speechSynthesis' in window);
 }
 
-// Global speaking state to prevent acoustic feedback loop (mic hearing own TTS output)
-let _isAssistantSpeaking = false;
-let _speakingEndTime = 0;
-
-export function isSpeakingNow() {
-  if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
-    return true;
-  }
-  // Cooldown buffer of 750ms after speech ends to discard lingering room echo
-  return _isAssistantSpeaking || (Date.now() - _speakingEndTime < 750);
-}
-
 // Spoken numbers dictionary
 const NUMBER_WORDS = {
   zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
@@ -37,33 +25,24 @@ const NUMBER_WORDS = {
   'half dozen': 6, 'half a dozen': 6
 };
 
-const STOP_WORDS = new Set([
-  'please', 'can', 'you', 'i', 'want', 'to', 'buy', 'sell', 'give', 'me',
-  'add', 'a', 'an', 'the', 'book', 'books', 'copy', 'copies', 'piece',
-  'pieces', 'item', 'items', 'of', 'for', 'put', 'get', 'in', 'cart', 'some'
-]);
-
 /**
  * Convert spoken number phrases to numeric values
- * Example: "three" -> 3, "twenty five" -> 25, "a dozen" -> 12, "50" -> 50
+ * Example: "three" -> 3, "twenty five" -> 25, "a dozen" -> 12
  */
 export function parseSpokenNumber(text) {
   if (!text) return null;
   const clean = String(text).toLowerCase().trim();
 
-  // Extract direct digits if present
-  const digitMatch = clean.match(/(\d+(?:\.\d+)?)/);
-  if (digitMatch) {
-    const num = parseFloat(digitMatch[1]);
-    if (!isNaN(num)) return num;
-  }
+  // Check direct digits
+  const directMatch = clean.match(/^(\d+(\.\d+)?)$/);
+  if (directMatch) return parseFloat(directMatch[1]);
 
-  // Check direct word match
+  // Check special words
   if (NUMBER_WORDS[clean] !== undefined) {
     return NUMBER_WORDS[clean];
   }
 
-  // Check compound words like "twenty five" -> 25
+  // Check compound numbers like "twenty five" -> 25
   const words = clean.split(/[\s-]+/);
   let total = 0;
   let current = 0;
@@ -91,7 +70,7 @@ export function parseSpokenNumber(text) {
 /**
  * Clean text for phonetic / token matching
  */
-export function normalizeText(text) {
+function normalizeText(text) {
   return String(text || '')
     .toLowerCase()
     .replace(/[^\w\s]/g, ' ')
@@ -105,9 +84,9 @@ export function normalizeText(text) {
 function calculateMatchScore(product, queryTokens) {
   if (!product || queryTokens.length === 0) return 0;
 
-  const nameTokens = normalizeText(product.product_name || '').split(' ').filter(Boolean);
-  const pubTokens = normalizeText(product.publisher || '').split(' ').filter(Boolean);
-  const catTokens = normalizeText(product.category_name || '').split(' ').filter(Boolean);
+  const nameTokens = normalizeText(product.product_name || '').split(' ');
+  const pubTokens = normalizeText(product.publisher || '').split(' ');
+  const catTokens = normalizeText(product.category_name || '').split(' ');
   const barcode = String(product.barcode || '').toLowerCase();
 
   let matchedTokens = 0;
@@ -117,7 +96,7 @@ function calculateMatchScore(product, queryTokens) {
   const fullProdName = normalizeText(product.product_name || '');
 
   if (fullProdName.includes(fullQuery)) {
-    exactPhraseBonus = 4;
+    exactPhraseBonus = 3;
   }
 
   for (const token of queryTokens) {
@@ -125,34 +104,27 @@ function calculateMatchScore(product, queryTokens) {
 
     // Direct match in barcode
     if (barcode && barcode.includes(token)) {
-      matchedTokens += 5;
+      matchedTokens += 4;
       continue;
     }
 
     // Direct token match in product name
-    const foundInName = nameTokens.some(nt => 
-      nt === token || 
-      nt.startsWith(token) || 
-      token.startsWith(nt) || 
-      (token.length >= 3 && nt.includes(token)) ||
-      (nt.length >= 3 && token.includes(nt))
-    );
+    const foundInName = nameTokens.some(nt => nt === token || nt.startsWith(token) || (token.length > 3 && nt.includes(token)));
     if (foundInName) {
-      matchedTokens += 2.5;
+      matchedTokens += 2;
       continue;
     }
 
-    // Match in publisher
+    // Match in publisher or category
     const foundInPub = pubTokens.some(pt => pt === token || pt.startsWith(token));
     if (foundInPub) {
-      matchedTokens += 1.5;
+      matchedTokens += 1;
       continue;
     }
 
-    // Match in category
     const foundInCat = catTokens.some(ct => ct === token || ct.startsWith(token));
     if (foundInCat) {
-      matchedTokens += 0.8;
+      matchedTokens += 0.5;
     }
   }
 
@@ -164,7 +136,6 @@ function calculateMatchScore(product, queryTokens) {
  * Handles:
  * - "Add 3 copies of Aki-Ola Core Mathematics"
  * - "2 Kokroko English"
- * - "Aki-Ola Science"
  * - "Remove Aki-Ola"
  * - "Wholesale mode" / "Retail mode"
  * - "Checkout" / "Pay"
@@ -177,24 +148,12 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
   const transcript = rawTranscript.trim();
   const normalized = normalizeText(transcript);
 
-  // 0. Filter out assistant's own spoken phrases (Acoustic Echo Filter)
-  const ASSISTANT_PHRASES = [
-    'chale added', 'added to cart', 'sharp sharp', 'removed from cart',
-    'switched to wholesale', 'switched to retail', 'applied discount',
-    'cart cleared', 'proceeding to checkout', 'more sales to you',
-    'didnt catch that', 'speak again', 'hearing you say',
-    'you said', 'for you'
-  ];
-  if (ASSISTANT_PHRASES.some(phrase => normalized.includes(phrase))) {
-    return { intent: 'IGNORE', raw: transcript };
-  }
-
   // 1. Navigation & System Commands
-  if (/(checkout|pay|complete sale|payment|process sale|finish sale)/i.test(normalized)) {
+  if (/^(checkout|pay|complete sale|payment|process sale)$/i.test(normalized)) {
     return { intent: 'CHECKOUT', raw: transcript };
   }
 
-  if (/(clear cart|empty cart|delete cart|remove all|clear all)/i.test(normalized)) {
+  if (/^(clear cart|empty cart|delete cart|remove all)$/i.test(normalized)) {
     return { intent: 'CLEAR_CART', raw: transcript };
   }
 
@@ -206,11 +165,11 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
     return { intent: 'SET_PRICE_MODE', mode: 'retail', raw: transcript };
   }
 
-  if (/(enable tax|apply tax|with tax|add tax)/i.test(normalized)) {
+  if (/^(enable tax|apply tax|with tax|add tax)$/i.test(normalized)) {
     return { intent: 'TOGGLE_TAX', value: true, raw: transcript };
   }
 
-  if (/(disable tax|remove tax|without tax|no tax)/i.test(normalized)) {
+  if (/^(disable tax|remove tax|without tax|no tax)$/i.test(normalized)) {
     return { intent: 'TOGGLE_TAX', value: false, raw: transcript };
   }
 
@@ -227,13 +186,13 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
   const removeMatch = normalized.match(/^(?:remove|delete|cancel|drop)\s+(?:item\s+)?(.+)$/);
   if (removeMatch) {
     const queryPart = removeMatch[1].trim();
-    const queryTokens = queryPart.split(' ').filter(w => !STOP_WORDS.has(w));
+    const queryTokens = queryPart.split(' ');
     let bestMatch = null;
     let highestScore = 0;
 
     for (const p of products) {
       const score = calculateMatchScore(p, queryTokens);
-      if (score > highestScore && score >= 1.2) {
+      if (score > highestScore && score >= 1.5) {
         highestScore = score;
         bestMatch = p;
       }
@@ -249,9 +208,12 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
   }
 
   // 4. Add to Cart with Quantity:
-  // e.g. "Add 3 copies of Aki-Ola Science", "5 Kokroko English", "Aki-Ola Mathematics"
+  // e.g. "Add 3 copies of Aki-Ola Science", "5 Kokroko English", "Give me a dozen Golden Math"
   let quantity = 1;
   let queryText = normalized;
+
+  // Strip leading trigger words
+  queryText = queryText.replace(/^(please\s+)?(add|give me|sell|put|i want|get|buy)\s+/i, '');
 
   // Extract quantity from beginning
   const leadingQtyMatch = queryText.match(/^(\d+|a dozen|half dozen|half a dozen|one dozen|two dozen|three dozen|[a-z]+)\s+(?:copies\s+of|pieces\s+of|copies|pieces|pcs|qty\s+)?(.+)$/);
@@ -263,7 +225,7 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
     }
   }
 
-  // Also check quantity at the end: e.g. "Aki-Ola Science 3 pieces"
+  // Also check quantity at the end: e.g. "Aki-Ola Science 3 pieces" or "Aki-Ola Science quantity 5"
   const trailingQtyMatch = queryText.match(/^(.+?)\s+(?:quantity|qty|pieces|copies|pcs)\s+(\d+|[a-z]+)$/);
   if (trailingQtyMatch) {
     const potentialQty = parseSpokenNumber(trailingQtyMatch[2]);
@@ -273,18 +235,17 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
     }
   }
 
-  // Clean tokens by removing filler words
-  const allTokens = queryText.split(' ').filter(Boolean);
-  const meaningfulTokens = allTokens.filter(w => !STOP_WORDS.has(w) && w.length >= 2);
-  const tokensToUse = meaningfulTokens.length > 0 ? meaningfulTokens : allTokens;
+  // Clean remaining query text
+  queryText = queryText.replace(/^(copies\s+of|copies|pieces\s+of|pieces|books?\s+of|books?)\s+/i, '').trim();
+  const queryTokens = queryText.split(' ').filter(t => t.length > 0);
 
   // Match against catalog
   let bestMatch = null;
   let highestScore = 0;
 
   for (const p of products) {
-    const score = calculateMatchScore(p, tokensToUse);
-    if (score > highestScore && score >= 1.0) {
+    const score = calculateMatchScore(p, queryTokens);
+    if (score > highestScore && score >= 1.5) {
       highestScore = score;
       bestMatch = p;
     }
@@ -300,10 +261,10 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
   }
 
   // Search intent fallback if no direct product found
-  if (tokensToUse.length > 0) {
+  if (queryTokens.length > 0) {
     return {
       intent: 'SEARCH',
-      query: tokensToUse.join(' '),
+      query: queryText,
       raw: transcript
     };
   }
@@ -378,12 +339,16 @@ export function parseVoiceProductCommand(rawTranscript, categories = []) {
     }
   }
 
-  // 7. Extract Product Name / Title
+  // 7. Extract Product Name / Title:
+  // Strip out explicit keys and use the title part
   let titleCandidate = transcript;
+
+  // If explicit "Title ...", take from title
   const explicitTitleMatch = transcript.match(/(?:title|book\s+title|name|add\s+book)\s*(?:is|:)?\s*([^,]+?)(?:,|publisher|author|by|retail|wholesale|stock|price|category|barcode|$)/i);
   if (explicitTitleMatch && explicitTitleMatch[1].trim().length > 2) {
     titleCandidate = explicitTitleMatch[1].trim();
   } else {
+    // Cut off before the first detected keyword
     titleCandidate = titleCandidate
       .replace(/^(add|create|new)\s+(book|product|item)\s+/i, '')
       .split(/(?:,|\s+publisher|\s+author|\s+by|\s+retail|\s+wholesale|\s+stock|\s+price|\s+category|\s+barcode)/i)[0];
@@ -409,57 +374,25 @@ export function parseVoiceProductCommand(rawTranscript, categories = []) {
 
 /**
  * Text-to-Speech synthesis for spoken audio feedback
- * Prioritizes West African/African English or warm natural voices
  */
-export function speakText(text, options = {}, onEndCallback = null) {
-  if (!isSpeechSynthesisSupported() || !text) {
-    if (onEndCallback) onEndCallback();
-    return;
-  }
+export function speakText(text, options = {}) {
+  if (!isSpeechSynthesisSupported() || !text) return;
   try {
     window.speechSynthesis.cancel(); // cancel any active speech
-    _isAssistantSpeaking = true;
-
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = options.rate || 0.98; // Slightly relaxed, natural Ghanaian pace
-    utterance.pitch = options.pitch || 1.02;
-    utterance.volume = options.volume !== undefined ? options.volume : 0.95;
+    utterance.rate = options.rate || 1.05;
+    utterance.pitch = options.pitch || 1.0;
+    utterance.volume = options.volume !== undefined ? options.volume : 0.85;
 
-    const finalizeSpeech = () => {
-      _speakingEndTime = Date.now();
-      setTimeout(() => {
-        _isAssistantSpeaking = false;
-        if (onEndCallback) onEndCallback();
-      }, 700);
-    };
-
-    utterance.onend = finalizeSpeech;
-    utterance.onerror = finalizeSpeech;
-
-    // Prioritize African / West African / warm English voices
+    // Pick English voice if available
     const voices = window.speechSynthesis.getVoices();
     if (voices && voices.length > 0) {
-      const preferredVoice = 
-        voices.find(v => v.lang === 'en-GH' || v.lang === 'en-NG') ||
-        voices.find(v => v.lang === 'en-ZA') ||
-        voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Arthur')));
-      if (preferredVoice) utterance.voice = preferredVoice;
+      const enVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha')));
+      if (enVoice) utterance.voice = enVoice;
     }
 
     window.speechSynthesis.speak(utterance);
   } catch (e) {
     console.warn('Speech synthesis failed:', e);
-    _isAssistantSpeaking = false;
-    if (onEndCallback) onEndCallback();
   }
-}
-
-export function stopSpeaking() {
-  if (typeof window !== 'undefined' && window.speechSynthesis) {
-    try {
-      window.speechSynthesis.cancel();
-    } catch (e) {}
-  }
-  _isAssistantSpeaking = false;
-  _speakingEndTime = Date.now();
 }
