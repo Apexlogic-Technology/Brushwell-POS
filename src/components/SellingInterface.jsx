@@ -30,7 +30,9 @@ export default function SellingInterface({
     is_custom: false,
     selected_product_id: ''
   });
-  const quickSuppliers = ['Sedco Bookstore', 'Aki-Ola Publications', 'Golden Books', 'Shop 4B', 'Adwinsa', 'Epp Books'];
+  const [borrowCatalogSearch, setBorrowCatalogSearch] = useState('');
+  const [borrowEditId, setBorrowEditId] = useState(null); // cart item id being inline-edited for borrow details
+  const [borrowInlineForm, setBorrowInlineForm] = useState({ borrow_supplier: '', borrow_cost_price: '' });
 
   const [selectedCat, setSelectedCat] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -188,19 +190,28 @@ export default function SellingInterface({
   };
 
   const toggleCartItemBorrowed = (id) => {
-    setCart(prev => prev.map(item => {
-      if (item.id === id) {
-        const nextIsBorrowed = !item.is_borrowed;
-        return {
-          ...item,
-          is_borrowed: nextIsBorrowed,
-          borrow_supplier: nextIsBorrowed ? (item.borrow_supplier || 'Neighbor Bookstore') : null,
-          borrow_cost_price: nextIsBorrowed ? (item.borrow_cost_price || item.wholesale_price || (item.retail_price * 0.8)) : null,
-          borrow_settlement_status: nextIsBorrowed ? 'unpaid' : null
-        };
-      }
-      return item;
-    }));
+    const item = cart.find(c => c.id === id);
+    if (!item) return;
+    if (item.is_borrowed) {
+      // Unmark
+      setCart(prev => prev.map(c => c.id === id ? { ...c, is_borrowed: false, borrow_supplier: null, borrow_cost_price: null, borrow_settlement_status: null } : c));
+      setBorrowEditId(null);
+    } else {
+      // Open inline edit form so cashier can type supplier + cost
+      setBorrowInlineForm({
+        borrow_supplier: item.borrow_supplier || '',
+        borrow_cost_price: item.borrow_cost_price != null ? String(item.borrow_cost_price) : String((item.wholesale_price || (item.retail_price * 0.8)).toFixed(2))
+      });
+      setBorrowEditId(id);
+    }
+  };
+
+  const confirmBorrowInline = (id) => {
+    const supplier = borrowInlineForm.borrow_supplier.trim();
+    if (!supplier) { alert('Please enter a lender / supplier name.'); return; }
+    const cost = parseFloat(borrowInlineForm.borrow_cost_price) || 0;
+    setCart(prev => prev.map(c => c.id === id ? { ...c, is_borrowed: true, borrow_supplier: supplier, borrow_cost_price: cost, borrow_settlement_status: 'unpaid' } : c));
+    setBorrowEditId(null);
   };
 
   const addToCart = (product) => {
@@ -831,7 +842,7 @@ export default function SellingInterface({
                             }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                                 <Handshake size={13} color="var(--accent-amber)" />
-                                <span>Lender: <strong>{item.borrow_supplier || 'Neighbor Store'}</strong> (Cost: {currencySymbol}{(parseFloat(item.borrow_cost_price) || 0).toFixed(2)})</span>
+                                <span>Lender: <strong>{item.borrow_supplier || 'Unknown'}</strong> (Cost: {currencySymbol}{(parseFloat(item.borrow_cost_price) || 0).toFixed(2)})</span>
                               </div>
                               <button
                                 type="button"
@@ -849,6 +860,43 @@ export default function SellingInterface({
                               >
                                 Unmark
                               </button>
+                            </div>
+                          ) : borrowEditId === item.id ? (
+                            <div style={{ marginTop: '0.25rem', marginBottom: '0.15rem', background: 'var(--bg-card)', border: '1px solid var(--accent-amber)', borderRadius: 'var(--radius-sm)', padding: '0.4rem 0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                              <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'hsl(35,90%,22%)', display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.1rem' }}>
+                                <Handshake size={12} color="var(--accent-amber)" /> Mark as Borrowed
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'flex-end' }}>
+                                <div style={{ flex: 2 }}>
+                                  <div style={{ fontSize: '0.62rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.15rem' }}>Lender / Supplier</div>
+                                  <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="e.g. Sedco Bookshop"
+                                    value={borrowInlineForm.borrow_supplier}
+                                    onChange={e => setBorrowInlineForm(f => ({ ...f, borrow_supplier: e.target.value }))}
+                                    style={{ fontSize: '0.74rem', padding: '0.2rem 0.35rem' }}
+                                    autoFocus
+                                  />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: '0.62rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.15rem' }}>Cost ({currencySymbol})</div>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    className="form-control"
+                                    placeholder="0.00"
+                                    value={borrowInlineForm.borrow_cost_price}
+                                    onChange={e => setBorrowInlineForm(f => ({ ...f, borrow_cost_price: e.target.value }))}
+                                    style={{ fontSize: '0.74rem', padding: '0.2rem 0.35rem' }}
+                                  />
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.1rem' }}>
+                                <button type="button" onClick={() => confirmBorrowInline(item.id)} style={{ flex: 1, fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--accent-amber)', color: '#fff', cursor: 'pointer' }}>✔ Confirm</button>
+                                <button type="button" onClick={() => setBorrowEditId(null)} style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', background: 'var(--bg-surface)', color: 'var(--text-muted)', cursor: 'pointer' }}>✕</button>
+                              </div>
                             </div>
                           ) : (
                             <div style={{ marginTop: '0.15rem', marginBottom: '0.1rem' }}>
@@ -1294,39 +1342,59 @@ export default function SellingInterface({
 
               {!borrowForm.is_custom ? (
                 <div>
-                  <label className="form-label">Select Book from Catalog *</label>
-                  <select
+                  <label className="form-label">Search Book from Catalog *</label>
+                  <input
+                    type="text"
                     className="form-control"
-                    value={borrowForm.selected_product_id}
-                    onChange={e => {
-                      const selId = e.target.value;
-                      const prod = products.find(p => p.id === selId);
-                      if (prod) {
-                        setBorrowForm(f => ({
-                          ...f,
-                          selected_product_id: prod.id,
-                          product_name: prod.product_name,
-                          grade: getProductGrade(prod),
-                          publisher: prod.publisher || '',
-                          retail_price: prod.retail_price || 0,
-                          borrow_cost_price: prod.wholesale_price || (prod.retail_price * 0.8)
-                        }));
-                      } else {
-                        setBorrowForm(f => ({ ...f, selected_product_id: '', product_name: '', retail_price: '', borrow_cost_price: '' }));
-                      }
-                    }}
-                    required
-                  >
-                    <option value="">-- Choose Book --</option>
-                    {products.map(p => {
-                      const grade = getProductGrade(p);
-                      return (
-                        <option key={p.id} value={p.id}>
-                          {p.product_name} {grade ? `[${grade}]` : ''} — Stock: {p.stock_quantity} (GH₵{p.retail_price})
-                        </option>
-                      );
-                    })}
-                  </select>
+                    placeholder="Type title, class, or publisher…"
+                    value={borrowCatalogSearch}
+                    onChange={e => setBorrowCatalogSearch(e.target.value)}
+                    autoFocus
+                  />
+                  {borrowForm.selected_product_id && (
+                    <div style={{ marginTop: '0.3rem', padding: '0.35rem 0.5rem', background: 'var(--accent-amber-light)', border: '1px solid var(--accent-amber)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', fontWeight: 700, color: 'hsl(35,90%,22%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>✔ {borrowForm.product_name} {borrowForm.grade ? `[${borrowForm.grade}]` : ''}</span>
+                      <button type="button" onClick={() => { setBorrowForm(f => ({ ...f, selected_product_id: '', product_name: '', grade: '', publisher: '', retail_price: '', borrow_cost_price: '' })); setBorrowCatalogSearch(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.7rem', color: 'var(--accent-rose)', fontWeight: 700 }}>✕ Clear</button>
+                    </div>
+                  )}
+                  {borrowCatalogSearch.trim().length > 0 && !borrowForm.selected_product_id && (() => {
+                    const q = borrowCatalogSearch.toLowerCase();
+                    const matches = products.filter(p =>
+                      (p.product_name || '').toLowerCase().includes(q) ||
+                      (getProductGrade(p) || '').toLowerCase().includes(q) ||
+                      (p.publisher || '').toLowerCase().includes(q)
+                    ).slice(0, 12);
+                    return (
+                      <div style={{ marginTop: '0.25rem', maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface)' }}>
+                        {matches.length === 0 ? (
+                          <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.74rem', color: 'var(--text-muted)' }}>No matching books found.</div>
+                        ) : matches.map(p => {
+                          const grade = getProductGrade(p);
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => {
+                                setBorrowForm(f => ({ ...f, selected_product_id: p.id, product_name: p.product_name, grade: grade, publisher: p.publisher || '', retail_price: p.retail_price || 0, borrow_cost_price: p.wholesale_price || (p.retail_price * 0.8) }));
+                                setBorrowCatalogSearch('');
+                              }}
+                              style={{ padding: '0.4rem 0.7rem', borderBottom: '1px solid var(--border-light)', cursor: 'pointer', fontSize: '0.76rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{p.product_name}</div>
+                                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{grade ? `Class: ${grade}` : ''}{p.publisher ? ` · ${p.publisher}` : ''}</div>
+                              </div>
+                              <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '0.5rem' }}>
+                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--primary)' }}>GH₵{p.retail_price}</div>
+                                <div style={{ fontSize: '0.65rem', color: p.stock_quantity > 0 ? 'var(--accent-green)' : 'var(--accent-rose)' }}>Stock: {p.stock_quantity}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -1377,27 +1445,6 @@ export default function SellingInterface({
                   onChange={e => setBorrowForm(f => ({ ...f, borrow_supplier: e.target.value }))}
                   required
                 />
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.3rem' }}>
-                  {quickSuppliers.map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setBorrowForm(f => ({ ...f, borrow_supplier: s }))}
-                      style={{
-                        fontSize: '0.68rem',
-                        fontWeight: 600,
-                        padding: '0.15rem 0.45rem',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid var(--border-light)',
-                        background: borrowForm.borrow_supplier === s ? 'var(--accent-amber)' : 'var(--bg-surface)',
-                        color: borrowForm.borrow_supplier === s ? '#fff' : 'var(--text-muted)',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* Prices & Quantity */}
