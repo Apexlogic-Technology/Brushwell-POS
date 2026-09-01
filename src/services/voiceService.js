@@ -15,6 +15,18 @@ export function isSpeechSynthesisSupported() {
   return Boolean('speechSynthesis' in window);
 }
 
+// Global speaking state to prevent acoustic feedback loop (mic hearing own TTS output)
+let _isAssistantSpeaking = false;
+let _speakingEndTime = 0;
+
+export function isSpeakingNow() {
+  if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
+    return true;
+  }
+  // Cooldown buffer of 750ms after speech ends to discard lingering room echo
+  return _isAssistantSpeaking || (Date.now() - _speakingEndTime < 750);
+}
+
 // Spoken numbers dictionary
 const NUMBER_WORDS = {
   zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
@@ -164,6 +176,18 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
 
   const transcript = rawTranscript.trim();
   const normalized = normalizeText(transcript);
+
+  // 0. Filter out assistant's own spoken phrases (Acoustic Echo Filter)
+  const ASSISTANT_PHRASES = [
+    'chale added', 'added to cart', 'sharp sharp', 'removed from cart',
+    'switched to wholesale', 'switched to retail', 'applied discount',
+    'cart cleared', 'proceeding to checkout', 'more sales to you',
+    'didnt catch that', 'speak again', 'hearing you say',
+    'you said', 'for you'
+  ];
+  if (ASSISTANT_PHRASES.some(phrase => normalized.includes(phrase))) {
+    return { intent: 'IGNORE', raw: transcript };
+  }
 
   // 1. Navigation & System Commands
   if (/(checkout|pay|complete sale|payment|process sale|finish sale)/i.test(normalized)) {
@@ -387,14 +411,30 @@ export function parseVoiceProductCommand(rawTranscript, categories = []) {
  * Text-to-Speech synthesis for spoken audio feedback
  * Prioritizes West African/African English or warm natural voices
  */
-export function speakText(text, options = {}) {
-  if (!isSpeechSynthesisSupported() || !text) return;
+export function speakText(text, options = {}, onEndCallback = null) {
+  if (!isSpeechSynthesisSupported() || !text) {
+    if (onEndCallback) onEndCallback();
+    return;
+  }
   try {
     window.speechSynthesis.cancel(); // cancel any active speech
+    _isAssistantSpeaking = true;
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = options.rate || 0.98; // Slightly relaxed, natural Ghanaian pace
     utterance.pitch = options.pitch || 1.02;
     utterance.volume = options.volume !== undefined ? options.volume : 0.95;
+
+    const finalizeSpeech = () => {
+      _speakingEndTime = Date.now();
+      setTimeout(() => {
+        _isAssistantSpeaking = false;
+        if (onEndCallback) onEndCallback();
+      }, 700);
+    };
+
+    utterance.onend = finalizeSpeech;
+    utterance.onerror = finalizeSpeech;
 
     // Prioritize African / West African / warm English voices
     const voices = window.speechSynthesis.getVoices();
@@ -409,5 +449,17 @@ export function speakText(text, options = {}) {
     window.speechSynthesis.speak(utterance);
   } catch (e) {
     console.warn('Speech synthesis failed:', e);
+    _isAssistantSpeaking = false;
+    if (onEndCallback) onEndCallback();
   }
+}
+
+export function stopSpeaking() {
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {}
+  }
+  _isAssistantSpeaking = false;
+  _speakingEndTime = Date.now();
 }

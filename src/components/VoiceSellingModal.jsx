@@ -3,7 +3,9 @@ import { Mic, MicOff, X, Volume2, VolumeX, RotateCcw, ShoppingCart, CheckCircle2
 import {
   isSpeechRecognitionSupported,
   parseVoiceSalesCommand,
-  speakText
+  speakText,
+  stopSpeaking,
+  isSpeakingNow
 } from '../services/voiceService';
 
 const COMMAND_TIPS = [
@@ -69,19 +71,42 @@ export default function VoiceSellingModal({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      stopSpeaking();
       stopListening();
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
   }, []);
 
   const clearAutoExecute = useCallback(() => {
-    if (countdownRef.current) clearInterval(countdownRef.current);
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     setCountdown(null);
+  }, []);
+
+  const stopListening = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) { /* ignore */ }
+      recognitionRef.current = null;
+    }
+    if (isMountedRef.current) setIsListening(false);
   }, []);
 
   const executeAction = useCallback((action) => {
     if (!action) return;
     clearAutoExecute();
+    stopListening(); // Fully stop microphone before assistant speaks!
+
     let feedbackText = '';
 
     switch (action.intent) {
@@ -141,31 +166,47 @@ export default function VoiceSellingModal({
         setLastResult({ type: 'info', message: feedbackText, icon: '🔍' });
         break;
       }
+      case 'IGNORE': {
+        // Echo filter: ignore silently
+        return;
+      }
       default: {
         setLastResult({ type: 'error', message: 'Chale, I didn\'t catch that well. Please try again.', icon: '?' });
         feedbackText = 'Chale, I didn\'t catch that well. Please speak again.';
       }
     }
 
-    if (voiceFeedback && feedbackText) {
-      speakText(feedbackText);
-    }
-
+    // Reset speech state
     setPendingAction(null);
     setTranscript('');
     setInterimText('');
     latestSpeechRef.current = '';
-  }, [voiceFeedback, onAddToCart, onRemoveFromCart, onSetPriceMode, onApplyDiscount, onToggleTax, onClearCart, onCheckout, onClose, clearAutoExecute]);
+
+    if (voiceFeedback && feedbackText) {
+      speakText(feedbackText, {}, () => {
+        // Speech finished callback
+      });
+    }
+  }, [voiceFeedback, onAddToCart, onRemoveFromCart, onSetPriceMode, onApplyDiscount, onToggleTax, onClearCart, onCheckout, onClose, clearAutoExecute, stopListening]);
 
   const handleTranscriptFinal = useCallback((text) => {
-    if (!text || !isMountedRef.current) return;
+    if (!text || !isMountedRef.current || isSpeakingNow()) return;
     const cleanText = text.trim();
     if (!cleanText) return;
 
-    setTranscript(cleanText);
-    setInterimText('');
+    clearAutoExecute();
 
     const parsed = parseVoiceSalesCommand(cleanText, products);
+    if (!parsed || parsed.intent === 'IGNORE') {
+      // Discard echo feedback
+      setInterimText('');
+      setTranscript('');
+      latestSpeechRef.current = '';
+      return;
+    }
+
+    setTranscript(cleanText);
+    setInterimText('');
     setPendingAction(parsed);
 
     if (parsed.intent === 'UNKNOWN') {
@@ -176,31 +217,32 @@ export default function VoiceSellingModal({
     // Auto-execute countdown: 2 seconds
     let secs = 2;
     setCountdown(secs);
+    if (countdownRef.current) clearInterval(countdownRef.current);
     countdownRef.current = setInterval(() => {
       secs -= 1;
-      if (!isMountedRef.current) { clearInterval(countdownRef.current); return; }
+      if (!isMountedRef.current) {
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        return;
+      }
       if (secs <= 0) {
-        clearInterval(countdownRef.current);
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        countdownRef.current = null;
         setCountdown(null);
         executeAction(parsed);
       } else {
         setCountdown(secs);
       }
     }, 1000);
-  }, [products, executeAction]);
-
-  const stopListening = useCallback(() => {
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch (e) { /* ignore */ }
-      recognitionRef.current = null;
-    }
-    if (isMountedRef.current) setIsListening(false);
-  }, []);
+  }, [products, executeAction, clearAutoExecute]);
 
   const startListening = useCallback(() => {
     if (!isSupported) {
       setErrorMsg('Voice recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+      return;
+    }
+
+    if (isSpeakingNow()) {
+      // Assistant is currently speaking; do not activate mic
       return;
     }
 
@@ -234,7 +276,7 @@ export default function VoiceSellingModal({
       };
 
       recognition.onresult = (event) => {
-        if (!isMountedRef.current) return;
+        if (!isMountedRef.current || isSpeakingNow()) return;
         let interim = '';
         let final = '';
 
@@ -248,13 +290,15 @@ export default function VoiceSellingModal({
         }
 
         const combined = (final + interim).trim();
+        if (isSpeakingNow()) return;
+
         latestSpeechRef.current = combined;
         setInterimText(combined);
 
-        // Reset silence timer: when user pauses for 1.2s, auto-process speech
+        // Reset silence timer: when user pauses for 1.3s, auto-process speech
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
-          if (latestSpeechRef.current.trim()) {
+          if (!isSpeakingNow() && latestSpeechRef.current.trim()) {
             stopListening();
             handleTranscriptFinal(latestSpeechRef.current.trim());
           }
@@ -279,8 +323,8 @@ export default function VoiceSellingModal({
       recognition.onend = () => {
         if (isMountedRef.current) {
           setIsListening(false);
-          // If we have speech captured that wasn't finalized yet, finalize it now
-          if (latestSpeechRef.current.trim() && !pendingAction) {
+          // If we have speech captured that wasn't finalized yet and assistant is not speaking
+          if (!isSpeakingNow() && latestSpeechRef.current.trim() && !pendingAction) {
             handleTranscriptFinal(latestSpeechRef.current.trim());
           }
         }
@@ -309,15 +353,16 @@ export default function VoiceSellingModal({
       }, 300);
       return () => clearTimeout(timer);
     } else {
+      stopSpeaking();
       stopListening();
       clearAutoExecute();
     }
-  }, [isOpen]);
+  }, [isOpen, clearAutoExecute, startListening, stopListening]);
 
   const toggleListening = () => {
     if (isListening) {
       stopListening();
-      if (latestSpeechRef.current.trim()) {
+      if (!isSpeakingNow() && latestSpeechRef.current.trim()) {
         handleTranscriptFinal(latestSpeechRef.current.trim());
       }
     } else {
