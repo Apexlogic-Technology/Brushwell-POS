@@ -3,9 +3,9 @@ import {
   BarChart2, TrendingUp, Package, AlertTriangle,
   DollarSign, ShoppingBag, Calendar, Printer,
   BookOpen, Filter, Clock, FileText, ChevronLeft, ChevronRight,
-  RotateCcw, FileSpreadsheet
+  RotateCcw, FileSpreadsheet, Handshake, CheckCircle2, Check
 } from 'lucide-react';
-import { fetchOrders, fetchProducts } from '../services/supabaseService';
+import { fetchOrders, fetchProducts, updateOrderBorrowSettlement } from '../services/supabaseService';
 import RefundModal from './RefundModal';
 import ZReportModal from './ZReportModal';
 
@@ -39,9 +39,11 @@ function getDateBounds(rangeKey, customDate) {
 }
 
 export default function Reports({ session, settings }) {
-  const [activeReport, setActiveReport] = useState('daily'); // 'daily' | 'sales' | 'inventory'
+  const [activeReport, setActiveReport] = useState('daily'); // 'daily' | 'sales' | 'inventory' | 'borrowed'
   const [dateRange, setDateRange] = useState('today');
   const [dailyDate, setDailyDate] = useState(new Date().toISOString().split('T')[0]);
+  const [borrowDateRange, setBorrowDateRange] = useState('today');
+  const [borrowSupplierFilter, setBorrowSupplierFilter] = useState('all');
 
   const [isRefundOpen, setIsRefundOpen] = useState(false);
   const [isZReportOpen, setIsZReportOpen] = useState(false);
@@ -154,6 +156,119 @@ export default function Reports({ session, settings }) {
   const catStock = Object.entries(catStockMap).sort((a, b) => b[1].value - a[1].value);
   const maxCatValue = Math.max(...catStock.map(([, v]) => v.value), 1);
 
+  // ── BORROWED BOOKS & SUPPLIER PAYOUTS ────────────────────────────────────
+  const borrowedSalesData = useMemo(() => {
+    const { start, end } = getDateBounds(borrowDateRange);
+    const inRangeOrders = allSales.filter(s => {
+      const d = new Date(s.created_at || s.timestamp);
+      return d >= start && d < end && !s.is_refund;
+    });
+
+    const items = [];
+    inRangeOrders.forEach(order => {
+      (order.items || []).forEach(item => {
+        if (item.is_borrowed) {
+          const unitSell = parseFloat(item.price) || 0;
+          const unitCost = parseFloat(item.borrow_cost_price) || 0;
+          const qty = parseInt(item.quantity, 10) || 1;
+          const lineRevenue = unitSell * qty;
+          const linePayout = unitCost * qty;
+          const lineProfit = Math.max(0, lineRevenue - linePayout);
+          const supplier = item.borrow_supplier || 'Neighbor Store';
+          const isSettled = item.borrow_settlement_status === 'paid';
+
+          items.push({
+            order_id: order.order_id,
+            created_at: order.created_at || order.timestamp,
+            cashier_name: order.cashier_name || 'Staff',
+            product_name: item.product_name,
+            grade: item.grade,
+            quantity: qty,
+            unit_price: unitSell,
+            unit_cost: unitCost,
+            line_revenue: lineRevenue,
+            line_payout: linePayout,
+            line_profit: lineProfit,
+            supplier: supplier,
+            is_settled: isSettled,
+            settlement_status: item.borrow_settlement_status || 'unpaid',
+            item_id: item.id
+          });
+        }
+      });
+    });
+
+    // Group by supplier
+    const supplierMap = {};
+    items.forEach(item => {
+      if (!supplierMap[item.supplier]) {
+        supplierMap[item.supplier] = {
+          supplier: item.supplier,
+          items: [],
+          totalQty: 0,
+          totalRevenue: 0,
+          totalPayout: 0,
+          unsettledPayout: 0,
+          settledPayout: 0,
+          totalProfit: 0
+        };
+      }
+      supplierMap[item.supplier].items.push(item);
+      supplierMap[item.supplier].totalQty += item.quantity;
+      supplierMap[item.supplier].totalRevenue += item.line_revenue;
+      supplierMap[item.supplier].totalPayout += item.line_payout;
+      supplierMap[item.supplier].totalProfit += item.line_profit;
+      if (item.is_settled) {
+        supplierMap[item.supplier].settledPayout += item.line_payout;
+      } else {
+        supplierMap[item.supplier].unsettledPayout += item.line_payout;
+      }
+    });
+
+    const supplierList = Object.values(supplierMap);
+    const totalBorrowedQty = items.reduce((sum, i) => sum + i.quantity, 0);
+    const totalBorrowedRevenue = items.reduce((sum, i) => sum + i.line_revenue, 0);
+    const totalBorrowedPayout = items.reduce((sum, i) => sum + i.line_payout, 0);
+    const totalUnsettledPayout = items.filter(i => !i.is_settled).reduce((sum, i) => sum + i.line_payout, 0);
+    const totalSettledPayout = items.filter(i => i.is_settled).reduce((sum, i) => sum + i.line_payout, 0);
+    const totalBorrowedProfit = items.reduce((sum, i) => sum + i.line_profit, 0);
+
+    return {
+      items,
+      supplierList,
+      totalQty: totalBorrowedQty,
+      totalRevenue: totalBorrowedRevenue,
+      totalPayout: totalBorrowedPayout,
+      unsettledPayout: totalUnsettledPayout,
+      settledPayout: totalSettledPayout,
+      totalProfit: totalBorrowedProfit
+    };
+  }, [allSales, borrowDateRange]);
+
+  const handleToggleSettlement = async (orderId, itemId, currentStatus) => {
+    const nextStatus = currentStatus === 'paid' ? 'unpaid' : 'paid';
+    try {
+      await updateOrderBorrowSettlement(orderId, itemId, nextStatus, `Updated by ${session?.name || 'Admin'}`);
+      setAllSales(prev => prev.map(order => {
+        if (order.order_id === orderId) {
+          return {
+            ...order,
+            items: (order.items || []).map(item => {
+              if (item.id === itemId || (item.is_borrowed && item.product_name === itemId)) {
+                return { ...item, borrow_settlement_status: nextStatus, borrow_settled_at: nextStatus === 'paid' ? new Date().toISOString() : null };
+              }
+              return item;
+            })
+          };
+        }
+        return order;
+      }));
+    } catch (err) {
+      console.error('Failed to update settlement:', err);
+      alert('Failed to update settlement status: ' + (err.message || 'Error'));
+    }
+  };
+
   const handlePrint = () => window.print();
 
   const formattedDailyDate = new Date(dailyDate + 'T00:00:00').toLocaleDateString('en-GB', {
@@ -171,7 +286,7 @@ export default function Reports({ session, settings }) {
             Reports & Closing
           </h2>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-            Sales, Inventory & End-of-Day Till Audit
+            Sales, Inventory, Borrowed Payouts & End-of-Day Till Audit
           </p>
         </div>
 
@@ -193,7 +308,8 @@ export default function Reports({ session, settings }) {
         {[
           { key: 'daily', label: 'Daily Sales', icon: FileText },
           { key: 'sales', label: 'Sales Summary', icon: TrendingUp },
-          { key: 'inventory', label: 'Inventory', icon: Package }
+          { key: 'inventory', label: 'Inventory', icon: Package },
+          { key: 'borrowed', label: '🤝 Borrowed & Payouts', icon: Handshake }
         ].map(tab => {
           const Icon = tab.icon;
           const active = activeReport === tab.key;
@@ -313,6 +429,234 @@ export default function Reports({ session, settings }) {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── BORROWED BOOKS & SUPPLIER PAYOUTS REPORT ─────────────────────── */}
+      {activeReport === 'borrowed' && (
+        <>
+          {/* Controls: Date Range Filter & Supplier Filter */}
+          <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '0.35rem' }}>
+              {DATE_RANGES.map(r => (
+                <button
+                  key={r.key}
+                  onClick={() => setBorrowDateRange(r.key)}
+                  className="btn-secondary"
+                  style={{
+                    padding: '0.35rem 0.65rem',
+                    fontSize: '0.74rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: borrowDateRange === r.key ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                    color: borrowDateRange === r.key ? '#fff' : 'var(--text-muted)',
+                    borderColor: borrowDateRange === r.key ? 'var(--primary)' : 'var(--border-light)'
+                  }}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Supplier Filter Dropdown */}
+            {borrowedSalesData.supplierList.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Filter Lender:</span>
+                <select
+                  className="form-control"
+                  value={borrowSupplierFilter}
+                  onChange={e => setBorrowSupplierFilter(e.target.value)}
+                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.74rem', width: 'auto' }}
+                >
+                  <option value="all">All Lenders / Suppliers ({borrowedSalesData.supplierList.length})</option>
+                  {borrowedSalesData.supplierList.map(s => (
+                    <option key={s.supplier} value={s.supplier}>{s.supplier}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Metric Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.65rem' }}>
+            <MetricCard
+              icon={<Handshake size={18} color="var(--accent-amber)" />}
+              bg="var(--accent-amber-light)"
+              label="Borrowed Books Sold"
+              value={borrowedSalesData.totalQty}
+              sub={`${borrowedSalesData.items.length} line transactions`}
+              valueColor="var(--text-main)"
+            />
+            <MetricCard
+              icon={<DollarSign size={18} color="var(--primary)" />}
+              bg="var(--primary-light)"
+              label="Customer Sales Total"
+              value={`GH₵${borrowedSalesData.totalRevenue.toFixed(2)}`}
+              sub="Gross collected from buyers"
+              valueColor="var(--primary)"
+            />
+            <MetricCard
+              icon={<AlertTriangle size={18} color="var(--accent-rose)" />}
+              bg="var(--accent-rose-light)"
+              label="Supplier Payouts Due"
+              value={`GH₵${borrowedSalesData.unsettledPayout.toFixed(2)}`}
+              sub={`Total due: GH₵${borrowedSalesData.totalPayout.toFixed(2)} (GH₵${borrowedSalesData.settledPayout.toFixed(2)} paid)`}
+              valueColor="var(--accent-rose)"
+            />
+            <MetricCard
+              icon={<TrendingUp size={18} color="var(--accent-emerald)" />}
+              bg="var(--accent-emerald-light)"
+              label="Shop Net Profit / Cut"
+              value={`GH₵${borrowedSalesData.totalProfit.toFixed(2)}`}
+              sub="Retained by your bookstore"
+              valueColor="var(--accent-emerald)"
+            />
+          </div>
+
+          {/* Suppliers Breakdown */}
+          {borrowedSalesData.items.length === 0 ? (
+            <div className="card-glass" style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
+              <Handshake size={36} color="var(--text-subtle)" style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+              <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>No Borrowed Books Sold for this period</div>
+              <div style={{ fontSize: '0.75rem', marginTop: '0.2rem' }}>
+                When you sell borrowed or third-party sourced books, they will appear here with automatic supplier debt calculations.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              {borrowedSalesData.supplierList
+                .filter(s => borrowSupplierFilter === 'all' || s.supplier === borrowSupplierFilter)
+                .map(sup => {
+                  const allPaid = sup.unsettledPayout === 0;
+                  return (
+                    <div key={sup.supplier} className="card-glass" style={{ padding: '0.85rem' }}>
+                      
+                      {/* Supplier Card Header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{
+                            background: allPaid ? 'var(--accent-emerald-light)' : 'var(--accent-amber-light)',
+                            color: allPaid ? 'var(--accent-emerald)' : 'var(--accent-amber)',
+                            padding: '0.35rem',
+                            borderRadius: 'var(--radius-sm)',
+                            display: 'flex'
+                          }}>
+                            <Handshake size={16} />
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                              {sup.supplier}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              {sup.totalQty} book{sup.totalQty > 1 ? 's' : ''} sold • Sales: GH₵{sup.totalRevenue.toFixed(2)} • Shop Profit: +GH₵{sup.totalProfit.toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              Payout Owed to Lender
+                            </div>
+                            <div style={{ fontWeight: 800, fontSize: '1.05rem', color: allPaid ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                              GH₵{sup.unsettledPayout.toFixed(2)} {allPaid && <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>(Settled)</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Items Table */}
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border-light)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                              <th style={{ padding: '0.35rem 0.5rem' }}>Book Title & Grade</th>
+                              <th style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>Qty</th>
+                              <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Selling Price</th>
+                              <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Borrow Cost</th>
+                              <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Total Owed</th>
+                              <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Shop Profit</th>
+                              <th style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>Date & Order</th>
+                              <th style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>Settlement</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sup.items.map((it, idx) => (
+                              <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)', background: it.is_settled ? 'transparent' : 'rgba(245, 158, 11, 0.04)' }}>
+                                <td style={{ padding: '0.45rem 0.5rem', fontWeight: 600 }}>
+                                  {it.product_name}
+                                  {it.grade && (
+                                    <span style={{
+                                      marginLeft: '0.35rem',
+                                      fontSize: '0.62rem',
+                                      fontWeight: 800,
+                                      padding: '0.05rem 0.3rem',
+                                      borderRadius: 'var(--radius-sm)',
+                                      background: 'var(--accent-purple)',
+                                      color: '#fff'
+                                    }}>
+                                      {it.grade}
+                                    </span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontWeight: 700 }}>
+                                  {it.quantity}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', color: 'var(--text-muted)' }}>
+                                  GH₵{it.unit_price.toFixed(2)}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 600 }}>
+                                  GH₵{it.unit_cost.toFixed(2)}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, color: 'var(--accent-rose)' }}>
+                                  GH₵{it.line_payout.toFixed(2)}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, color: 'var(--accent-emerald)' }}>
+                                  +GH₵{it.line_profit.toFixed(2)}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                  <div>#{it.order_id}</div>
+                                  <div>{new Date(it.created_at).toLocaleDateString()} {new Date(it.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleSettlement(it.order_id, it.item_id, it.settlement_status)}
+                                    style={{
+                                      padding: '0.2rem 0.55rem',
+                                      fontSize: '0.68rem',
+                                      fontWeight: 700,
+                                      borderRadius: 'var(--radius-sm)',
+                                      cursor: 'pointer',
+                                      border: 'none',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      background: it.is_settled ? 'var(--accent-emerald)' : 'var(--accent-amber)',
+                                      color: '#fff'
+                                    }}
+                                  >
+                                    {it.is_settled ? (
+                                      <>
+                                        <Check size={11} /> Paid
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Clock size={11} /> Mark Paid
+                                      </>
+                                    )}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                    </div>
+                  );
+                })}
             </div>
           )}
         </>

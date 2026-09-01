@@ -268,10 +268,10 @@ export const processCheckout = async (orderPayload) => {
 
   if (orderError) throw new Error(orderError.message);
 
-  // Decrement stock for each item sold safely
+  // Decrement stock for each item sold safely (skip spot borrowed / sourced items)
   for (const item of (orderPayload.items || [])) {
     try {
-      if (!item || !item.id) continue;
+      if (!item || !item.id || item.is_borrowed) continue;
       const { data: prod } = await client
         .from('products')
         .select('stock_quantity')
@@ -294,6 +294,42 @@ export const processCheckout = async (orderPayload) => {
   }
 
   return { status: 'success', order_id: order ? order.order_id : orderPayload.order_id };
+};
+
+// ─── Borrowed Items Settlement ───────────────────────────────────────────────
+export const updateOrderBorrowSettlement = async (orderId, itemId, settlementStatus, settlementNotes = '') => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+
+  const { data: order, error: fetchErr } = await client
+    .from('orders')
+    .select('*')
+    .eq('order_id', orderId)
+    .single();
+
+  if (fetchErr) throw new Error(fetchErr.message);
+
+  const updatedItems = (order.items || []).map(item => {
+    if (item.id === itemId || (item.is_borrowed && item.product_name === itemId)) {
+      return {
+        ...item,
+        borrow_settlement_status: settlementStatus,
+        borrow_settled_at: settlementStatus === 'paid' ? new Date().toISOString() : null,
+        borrow_settlement_notes: settlementNotes
+      };
+    }
+    return item;
+  });
+
+  const { data, error: updateErr } = await client
+    .from('orders')
+    .update({ items: updatedItems })
+    .eq('order_id', orderId)
+    .select()
+    .single();
+
+  if (updateErr) throw new Error(updateErr.message);
+  return data;
 };
 
 export const processRefund = async (refundPayload) => {
