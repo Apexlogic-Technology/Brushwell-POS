@@ -45,7 +45,10 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
         product_name: item.product_name,
         barcode: item.barcode,
         price: item.price,
-        quantity: qtyToReturn
+        quantity: qtyToReturn,
+        is_borrowed: Boolean(item.is_borrowed),
+        borrow_supplier: item.borrow_supplier,
+        borrow_cost_price: item.borrow_cost_price
       };
     }).filter(Boolean);
 
@@ -175,6 +178,29 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
                   </button>
                 </div>
 
+                {/* Warning if order has borrowed books */}
+                {selectedOrder.items.some(i => i.is_borrowed) && (
+                  <div style={{
+                    background: 'var(--accent-amber-light)',
+                    border: '1px solid var(--accent-amber)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '0.6rem 0.8rem',
+                    fontSize: '0.78rem',
+                    color: 'hsl(35, 90%, 25%)',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '0.5rem'
+                  }}>
+                    <AlertTriangle size={16} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <div style={{ fontWeight: 800 }}>Contains Borrowed / Spot Sourced Books</div>
+                      <div style={{ fontSize: '0.72rem', marginTop: '2px', lineHeight: 1.4 }}>
+                        Refunding borrowed books will not restore store inventory stock and does not cancel supplier debts already settled. Please verify with the lender store.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="form-group" style={{ margin: 0 }}>
                   <label>Return Reason</label>
                   <select className="form-control" value={reason} onChange={e => setReason(e.target.value)}>
@@ -202,8 +228,24 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
                         border: '1px solid var(--border-light)'
                       }}>
                         <div>
-                          <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>{item.product_name}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>GH₵{item.price.toFixed(2)} each</div>
+                          <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                            {item.product_name}
+                            {item.is_borrowed && (
+                              <span style={{
+                                marginLeft: '0.35rem',
+                                fontSize: '0.65rem',
+                                fontWeight: 800,
+                                padding: '0.08rem 0.35rem',
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'var(--accent-amber-light)',
+                                color: 'hsl(35, 90%, 25%)',
+                                border: '1px solid var(--accent-amber)'
+                              }}>
+                                🤝 Borrowed ({item.borrow_supplier || 'Supplier'})
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>GH₵{item.price.toFixed(2)} each {item.is_borrowed && '• No stock restore'}</div>
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>

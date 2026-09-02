@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   ShoppingBag, Scan, Settings, Moon, Sun, LogOut, 
-  Shield, User, Clock, ChevronDown, MoreVertical 
+  Shield, User, Clock, ChevronDown, MoreVertical, Package 
 } from 'lucide-react';
 
 export default function Header({
@@ -15,7 +15,9 @@ export default function Header({
   onOpenCart,
   session,
   onLogout,
-  isAdmin
+  isAdmin,
+  onOpenOutboundLoans,
+  outboundCount = 0
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -99,6 +101,32 @@ export default function Header({
           <Scan size={17} />
         </button>
 
+        {/* Outbound Loans Button */}
+        {onOpenOutboundLoans && (
+          <button
+            type="button"
+            className="btn-icon"
+            onClick={onOpenOutboundLoans}
+            style={{ width: '38px', height: '38px', position: 'relative', flexShrink: 0 }}
+            title="Outbound Loans (Books lent to other shops)"
+          >
+            <Package size={17} color="var(--accent-amber)" />
+            {outboundCount > 0 && (
+              <span style={{
+                position: 'absolute', top: '-4px', right: '-4px',
+                background: 'var(--accent-amber)', color: '#fff',
+                fontSize: '0.62rem', fontWeight: 800,
+                width: '18px', height: '18px', borderRadius: 'var(--radius-full)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                border: '2px solid var(--bg-surface)'
+              }}>
+                {outboundCount}
+              </span>
+            )}
+          </button>
+        )}
+
         {/* Cart Shortcut */}
         <button 
           className="btn-icon" 
@@ -179,6 +207,17 @@ export default function Header({
                 <Clock size={16} color="var(--primary)" />
                 <span>Sales History</span>
               </button>
+
+              {onOpenOutboundLoans && (
+                <button
+                  type="button"
+                  className="popover-menu-item"
+                  onClick={() => { setIsMenuOpen(false); onOpenOutboundLoans(); }}
+                >
+                  <Package size={16} color="var(--accent-amber)" />
+                  <span>Outbound Loans {outboundCount > 0 ? `(${outboundCount} open)` : ''}</span>
+                </button>
+              )}
 
               <button
                 type="button"

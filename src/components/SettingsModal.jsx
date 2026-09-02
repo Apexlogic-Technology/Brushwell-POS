@@ -90,7 +90,7 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
             <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem' }}>
               Store & Currency
             </div>
-            <div className="grid-2">
+            <div className="grid-2" style={{ marginBottom: '0.6rem' }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Bookshop Name</label>
                 <input type="text" className="form-control" value={form.store_name||''} onChange={e => setForm({ ...form, store_name: e.target.value })} placeholder="Brushwell Books" />
@@ -98,6 +98,20 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Currency Symbol</label>
                 <input type="text" className="form-control" value={form.currency_symbol||'GH₵'} onChange={e => setForm({ ...form, currency_symbol: e.target.value })} placeholder="GH₵" />
+              </div>
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Low Stock Warning Threshold (Copies)</label>
+              <input
+                type="number"
+                min="1"
+                className="form-control"
+                value={form.low_stock_threshold ?? 5}
+                onChange={e => setForm({ ...form, low_stock_threshold: parseInt(e.target.value, 10) || 1 })}
+                placeholder="5"
+              />
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                Books with stock at or below this quantity will display a yellow ⚠ Low warning badge in the cashier selling list.
               </div>
             </div>
           </section>

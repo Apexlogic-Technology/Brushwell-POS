@@ -14,8 +14,9 @@ import SettingsModal from './components/SettingsModal';
 import StockReceivingModal from './components/StockReceivingModal';
 import OrderHistoryModal from './components/OrderHistoryModal';
 import RefundModal from './components/RefundModal';
+import OutboundLoansModal from './components/OutboundLoansModal';
 
-import { fetchProducts, getSettings } from './services/supabaseService';
+import { fetchProducts, getSettings, fetchOutboundLoans } from './services/supabaseService';
 
 // Ghana Education System book categories (mirrors ProductManagement.jsx DEFAULT_CATEGORIES)
 const GH_BOOK_CATEGORIES = [
@@ -52,6 +53,8 @@ export default function App() {
   const [isStockReceiveOpen, setIsStockReceiveOpen] = useState(false);
   const [isOrderHistoryOpen, setIsOrderHistoryOpen] = useState(false);
   const [isRefundOpen, setIsRefundOpen] = useState(false);
+  const [isOutboundLoansOpen, setIsOutboundLoansOpen] = useState(false);
+  const [outboundLoansCount, setOutboundLoansCount] = useState(0);
   const [lastOrder, setLastOrder] = useState(null);
 
   // Theme effect
@@ -89,8 +92,13 @@ export default function App() {
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
-    const prods = await fetchProducts();
+    const [prods, loans] = await Promise.all([
+      fetchProducts(),
+      fetchOutboundLoans().catch(() => [])
+    ]);
     setProducts(prods);
+    const openLoans = (loans || []).filter(l => l.status === 'outstanding');
+    setOutboundLoansCount(openLoans.length);
     setIsLoading(false);
   }, []);
 
@@ -226,6 +234,8 @@ export default function App() {
           session={session}
           onLogout={handleLogout}
           isAdmin={isAdmin}
+          onOpenOutboundLoans={() => setIsOutboundLoansOpen(true)}
+          outboundCount={outboundLoansCount}
         />
       </div>
 
@@ -286,6 +296,29 @@ export default function App() {
           >
             <Clock size={18} />
             <span>Order History</span>
+          </button>
+
+          <button
+            type="button"
+            className="desktop-nav-link"
+            onClick={() => setIsOutboundLoansOpen(true)}
+            title="Track books lent to other shops"
+          >
+            <Package size={18} color="var(--accent-amber)" />
+            <span>Outbound Loans</span>
+            {outboundLoansCount > 0 && (
+              <span style={{
+                marginLeft: 'auto',
+                background: 'var(--accent-amber)',
+                color: '#fff',
+                fontSize: '0.65rem',
+                fontWeight: 800,
+                padding: '0.1rem 0.4rem',
+                borderRadius: 'var(--radius-full)'
+              }}>
+                {outboundLoansCount}
+              </span>
+            )}
           </button>
 
           {isAdmin && (
@@ -454,6 +487,16 @@ export default function App() {
         onClose={() => setIsReceiptOpen(false)}
         order={lastOrder}
         settings={{ ...settings, cashier_name: session?.name }}
+      />
+      <OutboundLoansModal
+        isOpen={isOutboundLoansOpen}
+        onClose={() => {
+          setIsOutboundLoansOpen(false);
+          loadData();
+        }}
+        products={products}
+        settings={settings}
+        session={session}
       />
     </div>
   );

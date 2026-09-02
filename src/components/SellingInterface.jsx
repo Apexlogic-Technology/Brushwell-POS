@@ -40,6 +40,11 @@ export default function SellingInterface({
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [cashGiven, setCashGiven] = useState('');
+  const [splitPayments, setSplitPayments] = useState({
+    Cash: '',
+    Card: '',
+    'Mobile Transfer': ''
+  });
   const [orderDiscount, setOrderDiscount] = useState(0);
   const [applyTax, setApplyTax] = useState(settings.tax_enabled_default || false);
   const [showTaxBreakdown, setShowTaxBreakdown] = useState(false);
@@ -159,14 +164,22 @@ export default function SellingInterface({
 
   const handleAddBorrowedBook = (e) => {
     e?.preventDefault();
+    if (!borrowForm.is_custom && !borrowForm.selected_product_id) {
+      alert('Please search and choose a book from the catalog, or click "Custom / Rare Book" above to type details.');
+      return;
+    }
     if (!borrowForm.product_name.trim()) {
       alert('Please enter or select a book title.');
+      return;
+    }
+    if (!borrowForm.borrow_supplier.trim()) {
+      alert('Please enter the lender / supplier store name.');
       return;
     }
     const rPrice = parseFloat(borrowForm.retail_price) || 0;
     const cPrice = parseFloat(borrowForm.borrow_cost_price) || 0;
     const qty = parseInt(borrowForm.quantity, 10) || 1;
-    const supplier = borrowForm.borrow_supplier.trim() || 'Neighbor Bookstore';
+    const supplier = borrowForm.borrow_supplier.trim();
 
     const newItem = {
       id: borrowForm.selected_product_id || ('borrow-' + Date.now()),
@@ -276,6 +289,35 @@ export default function SellingInterface({
     setIsSubmitting(true);
     setCheckoutError('');
 
+    // Calculate split payments if chosen
+    let effectivePaymentMethod = paymentMethod;
+    let splitList = null;
+    let effectiveAmountTendered = paymentMethod === 'Cash' ? cashNum : total;
+    let effectiveChangeDue = paymentMethod === 'Cash' ? changeDue : 0;
+
+    if (paymentMethod === 'Split') {
+      const sCash = parseFloat(splitPayments.Cash) || 0;
+      const sCard = parseFloat(splitPayments.Card) || 0;
+      const sMobile = parseFloat(splitPayments['Mobile Transfer']) || 0;
+      const splitSum = sCash + sCard + sMobile;
+
+      if (Math.abs(splitSum - total) > 0.05) {
+        alert(`Split payment sum (${currencySymbol}${splitSum.toFixed(2)}) must equal order total (${currencySymbol}${total.toFixed(2)}).\nDifference: ${currencySymbol}${Math.abs(total - splitSum).toFixed(2)}`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      splitList = [
+        sCash > 0 && { method: 'Cash', amount: sCash },
+        sCard > 0 && { method: 'Card', amount: sCard },
+        sMobile > 0 && { method: 'Mobile Transfer', amount: sMobile }
+      ].filter(Boolean);
+
+      effectivePaymentMethod = splitList.map(s => s.method).join(' + ') || 'Split';
+      effectiveAmountTendered = total;
+      effectiveChangeDue = 0;
+    }
+
     const nowIso = new Date().toISOString();
     const orderPayload = {
       order_id: 'ORD-' + Math.floor(100000 + Math.random() * 900000),
@@ -322,11 +364,12 @@ export default function SellingInterface({
       tax_amount: totalTaxAmount,
       tax_total: totalTaxAmount,
       total: total,
-      payment_method: paymentMethod,
-      cash_given: paymentMethod === 'Cash' ? cashNum : total,
-      amount_tendered: paymentMethod === 'Cash' ? cashNum : total,
-      change_due: paymentMethod === 'Cash' ? changeDue : 0,
-      change_given: paymentMethod === 'Cash' ? changeDue : 0,
+      payment_method: effectivePaymentMethod,
+      split_payments: splitList,
+      cash_given: effectiveAmountTendered,
+      amount_tendered: effectiveAmountTendered,
+      change_due: effectiveChangeDue,
+      change_given: effectiveChangeDue,
       cashier_name: settings.cashier_name || 'Main Cashier',
       customer_name: customerName.trim() || 'Walk-in Customer',
       customer_phone: customerPhone.trim() || ''
@@ -339,6 +382,7 @@ export default function SellingInterface({
       setCart([]);
       setIsCartOpen(false);
       setCashGiven('');
+      setSplitPayments({ Cash: '', Card: '', 'Mobile Transfer': '' });
       setOrderDiscount(0);
       setCustomerName('');
       setCustomerPhone('');
@@ -548,8 +592,9 @@ export default function SellingInterface({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
         {displayedProducts.map(product => {
           const price = priceMode === 'wholesale' ? (product.wholesale_price || 0) : (product.retail_price || 0);
-          const isLowStock = product.stock_quantity <= 10;
-          const isOutOfStock = product.stock_quantity <= 0;
+          const lowThreshold = parseInt(settings.low_stock_threshold, 10) || 5;
+          const isOutOfStock = (product.stock_quantity || 0) <= 0;
+          const isLowStock = !isOutOfStock && product.stock_quantity <= lowThreshold;
           const inCartItem = cart.find(c => c.id === product.id);
 
           return (
@@ -636,10 +681,19 @@ export default function SellingInterface({
               </div>
 
               {/* Stock badge */}
-              <span className={`badge ${isOutOfStock ? 'badge-rose' : isLowStock ? 'badge-rose' : 'badge-emerald'}`}
-                style={{ fontSize: '0.62rem', flexShrink: 0 }}>
-                {isOutOfStock ? 'Out' : `${product.stock_quantity}`}
-              </span>
+              {isOutOfStock ? (
+                <span className="badge badge-rose" style={{ fontSize: '0.62rem', flexShrink: 0 }}>
+                  Out
+                </span>
+              ) : isLowStock ? (
+                <span className="badge badge-amber" style={{ fontSize: '0.62rem', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '0.2rem', background: 'var(--accent-amber-light)', color: 'hsl(35, 90%, 25%)', border: '1px solid var(--accent-amber)', fontWeight: 800 }}>
+                  ⚠ Low ({product.stock_quantity})
+                </span>
+              ) : (
+                <span className="badge badge-emerald" style={{ fontSize: '0.62rem', flexShrink: 0 }}>
+                  {product.stock_quantity}
+                </span>
+              )}
 
               {/* Price */}
               <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--primary)', flexShrink: 0, minWidth: '58px', textAlign: 'right' }}>
@@ -1035,6 +1089,7 @@ export default function SellingInterface({
                     <option value="Cash">💵 Cash</option>
                     <option value="Card">💳 Debit / Credit Card</option>
                     <option value="Mobile Transfer">📱 Mobile Transfer / POS</option>
+                    <option value="Split">🔀 Split / Multiple Methods</option>
                   </select>
                 </div>
               </div>
@@ -1145,6 +1200,102 @@ export default function SellingInterface({
                   </div>
                 </div>
               )}
+
+              {/* Split Payments Calculator */}
+              {paymentMethod === 'Split' && (() => {
+                const sCash = parseFloat(splitPayments.Cash) || 0;
+                const sCard = parseFloat(splitPayments.Card) || 0;
+                const sMobile = parseFloat(splitPayments['Mobile Transfer']) || 0;
+                const totalEntered = sCash + sCard + sMobile;
+                const diff = total - totalEntered;
+                const isMatched = Math.abs(diff) <= 0.01;
+
+                return (
+                  <div style={{
+                    background: 'var(--bg-surface-elevated)',
+                    border: `1px solid ${isMatched ? 'var(--accent-emerald)' : 'var(--accent-amber)'}`,
+                    borderRadius: 'var(--radius-md)',
+                    padding: '0.75rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.55rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        🔀 Split Payment Breakdown
+                      </label>
+                      <span style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 800,
+                        padding: '0.1rem 0.4rem',
+                        borderRadius: 'var(--radius-sm)',
+                        background: isMatched ? 'var(--accent-emerald-light)' : 'var(--accent-amber-light)',
+                        color: isMatched ? 'var(--accent-emerald)' : 'hsl(35, 90%, 25%)'
+                      }}>
+                        {isMatched ? '✔ Total Matched' : diff > 0 ? `Remaining: ${currencySymbol}${diff.toFixed(2)}` : `Over by: ${currencySymbol}${Math.abs(diff).toFixed(2)}`}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block', marginBottom: '2px', fontWeight: 600 }}>💵 Cash</label>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          className="form-control"
+                          placeholder="0.00"
+                          value={splitPayments.Cash}
+                          onChange={e => setSplitPayments(s => ({ ...s, Cash: e.target.value }))}
+                          style={{ padding: '0.3rem 0.4rem', fontSize: '0.8rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block', marginBottom: '2px', fontWeight: 600 }}>💳 Card</label>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          className="form-control"
+                          placeholder="0.00"
+                          value={splitPayments.Card}
+                          onChange={e => setSplitPayments(s => ({ ...s, Card: e.target.value }))}
+                          style={{ padding: '0.3rem 0.4rem', fontSize: '0.8rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block', marginBottom: '2px', fontWeight: 600 }}>📱 Mobile</label>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          className="form-control"
+                          placeholder="0.00"
+                          value={splitPayments['Mobile Transfer']}
+                          onChange={e => setSplitPayments(s => ({ ...s, 'Mobile Transfer': e.target.value }))}
+                          style={{ padding: '0.3rem 0.4rem', fontSize: '0.8rem' }}
+                        />
+                      </div>
+                    </div>
+
+                    {diff > 0.01 && (
+                      <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', fontSize: '0.7rem' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Quick fill remainder to:</span>
+                        <button
+                          type="button"
+                          onClick={() => setSplitPayments(s => ({ ...s, Cash: ((parseFloat(s.Cash) || 0) + diff).toFixed(2) }))}
+                          style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', background: 'var(--bg-surface)', cursor: 'pointer' }}
+                        >+ Cash</button>
+                        <button
+                          type="button"
+                          onClick={() => setSplitPayments(s => ({ ...s, 'Mobile Transfer': ((parseFloat(s['Mobile Transfer']) || 0) + diff).toFixed(2) }))}
+                          style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', background: 'var(--bg-surface)', cursor: 'pointer' }}
+                        >+ Mobile</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Order Totals Box */}
               <div style={{

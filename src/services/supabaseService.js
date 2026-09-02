@@ -36,7 +36,8 @@ export const getSettings = () => {
     printer_paper_width: parsed.printer_paper_width || '58mm',
     printer_bluetooth_name: parsed.printer_bluetooth_name || '',
     tax_types: parsed.tax_types,
-    tax_enabled_default: parsed.tax_enabled_default || false
+    tax_enabled_default: parsed.tax_enabled_default || false,
+    low_stock_threshold: parsed.low_stock_threshold !== undefined ? parseInt(parsed.low_stock_threshold, 10) : 5
   };
 };
 
@@ -242,6 +243,7 @@ export const processCheckout = async (orderPayload) => {
     tax_breakdown:   orderPayload.tax_breakdown || [],
     total:           orderPayload.total || 0,
     payment_method:  orderPayload.payment_method || 'Cash',
+    split_payments:  orderPayload.split_payments || null,
     amount_tendered: orderPayload.amount_tendered ?? orderPayload.cash_given ?? orderPayload.total ?? 0,
     change_given:    orderPayload.change_given ?? orderPayload.change_due ?? 0,
     customer_name:   orderPayload.customer_name || 'Walk-in Customer',
@@ -257,13 +259,21 @@ export const processCheckout = async (orderPayload) => {
     .select()
     .single();
 
-  // Fallback: If customer_name or customer_phone columns don't exist in Supabase schema yet, strip them & retry
-  if (orderError && (orderError.message?.includes('customer_name') || orderError.message?.includes('customer_phone') || orderError.message?.includes('schema cache'))) {
-    delete payload.customer_name;
-    delete payload.customer_phone;
-    const retry = await client.from('orders').insert(payload).select().single();
-    order = retry.data;
-    orderError = retry.error;
+  // Fallback: strip columns that might not exist in schema yet, retry
+  if (orderError) {
+    const msg = orderError.message || '';
+    if (msg.includes('customer_name') || msg.includes('customer_phone') || msg.includes('schema cache')) {
+      delete payload.customer_name;
+      delete payload.customer_phone;
+    }
+    if (msg.includes('split_payments')) {
+      delete payload.split_payments;
+    }
+    if (msg.includes('customer_name') || msg.includes('split_payments') || msg.includes('schema cache')) {
+      const retry = await client.from('orders').insert(payload).select().single();
+      order = retry.data;
+      orderError = retry.error;
+    }
   }
 
   if (orderError) throw new Error(orderError.message);
@@ -356,10 +366,10 @@ export const processRefund = async (refundPayload) => {
 
   if (refundError) throw new Error(refundError.message);
 
-  // Restore stock for each returned item safely
+  // Restore stock for each returned item (skip borrowed items — they were never in our stock)
   for (const item of (refundPayload.items || [])) {
     try {
-      if (!item || !item.id) continue;
+      if (!item || !item.id || item.is_borrowed) continue;
       const { data: prod } = await client
         .from('products')
         .select('stock_quantity')
@@ -499,4 +509,53 @@ export const fetchReports = async ({ dateFrom, dateTo } = {}) => {
   const topProducts = Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
 
   return { totalSales, totalTax, transactionCount, orders, topProducts };
+};
+
+// ─── Outbound Loans (Books lent BY Brushwell TO other shops) ──────────────────
+export const fetchOutboundLoans = async () => {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from('outbound_loans')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) { console.error('fetchOutboundLoans error:', error.message); return []; }
+  return data || [];
+};
+
+export const createOutboundLoan = async (loanPayload) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const now = new Date().toISOString();
+  const payload = {
+    ...loanPayload,
+    loan_ref: loanPayload.loan_ref || ('LOAN-' + Math.floor(100000 + Math.random() * 900000)),
+    status: 'outstanding',
+    loaned_at: now,
+    created_at: now,
+    updated_at: now
+  };
+  const { data, error } = await client.from('outbound_loans').insert(payload).select().single();
+  if (error) throw new Error(error.message);
+  return data;
+};
+
+export const updateOutboundLoan = async (id, updates) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const { data, error } = await client
+    .from('outbound_loans')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+};
+
+export const deleteOutboundLoan = async (id) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const { error } = await client.from('outbound_loans').delete().eq('id', id);
+  if (error) throw new Error(error.message);
 };

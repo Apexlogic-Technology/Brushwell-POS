@@ -5,7 +5,7 @@ import {
   BookOpen, Filter, Clock, FileText, ChevronLeft, ChevronRight,
   RotateCcw, FileSpreadsheet, Handshake, CheckCircle2, Check
 } from 'lucide-react';
-import { fetchOrders, fetchProducts, updateOrderBorrowSettlement } from '../services/supabaseService';
+import { fetchOrders, fetchProducts, updateOrderBorrowSettlement, fetchOutboundLoans, updateOutboundLoan } from '../services/supabaseService';
 import RefundModal from './RefundModal';
 import ZReportModal from './ZReportModal';
 
@@ -51,11 +51,17 @@ export default function Reports({ session, settings }) {
 
   const [allSales, setAllSales] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
+  const [allLoans, setAllLoans] = useState([]);
 
   const loadReportData = React.useCallback(async () => {
-    const [orders, prods] = await Promise.all([fetchOrders({ limit: 1000 }), fetchProducts()]);
+    const [orders, prods, loans] = await Promise.all([
+      fetchOrders({ limit: 1000 }),
+      fetchProducts(),
+      fetchOutboundLoans().catch(() => [])
+    ]);
     setAllSales(orders);
     setAllProducts(prods);
+    setAllLoans(loans || []);
   }, []);
 
   React.useEffect(() => { loadReportData(); }, [loadReportData, refreshTrigger]);
@@ -304,12 +310,13 @@ export default function Reports({ session, settings }) {
       </div>
 
       {/* Report Type Toggle */}
-      <div style={{ display: 'flex', gap: '0.35rem', background: 'var(--bg-surface-elevated)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+      <div style={{ display: 'flex', gap: '0.35rem', background: 'var(--bg-surface-elevated)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)', overflowX: 'auto' }}>
         {[
           { key: 'daily', label: 'Daily Sales', icon: FileText },
           { key: 'sales', label: 'Sales Summary', icon: TrendingUp },
           { key: 'inventory', label: 'Inventory', icon: Package },
-          { key: 'borrowed', label: '🤝 Borrowed & Payouts', icon: Handshake }
+          { key: 'borrowed', label: '🤝 Borrowed In', icon: Handshake },
+          { key: 'outbound', label: '📤 Outbound Lent', icon: Package }
         ].map(tab => {
           const Icon = tab.icon;
           const active = activeReport === tab.key;
@@ -459,23 +466,36 @@ export default function Reports({ session, settings }) {
               ))}
             </div>
 
-            {/* Supplier Filter Dropdown */}
-            {borrowedSalesData.supplierList.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Filter Lender:</span>
-                <select
-                  className="form-control"
-                  value={borrowSupplierFilter}
-                  onChange={e => setBorrowSupplierFilter(e.target.value)}
-                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.74rem', width: 'auto' }}
-                >
-                  <option value="all">All Lenders / Suppliers ({borrowedSalesData.supplierList.length})</option>
-                  {borrowedSalesData.supplierList.map(s => (
-                    <option key={s.supplier} value={s.supplier}>{s.supplier}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {/* Supplier Filter Dropdown */}
+              {borrowedSalesData.supplierList.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Filter Lender:</span>
+                  <select
+                    className="form-control"
+                    value={borrowSupplierFilter}
+                    onChange={e => setBorrowSupplierFilter(e.target.value)}
+                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.74rem', width: 'auto' }}
+                  >
+                    <option value="all">All Lenders / Suppliers ({borrowedSalesData.supplierList.length})</option>
+                    {borrowedSalesData.supplierList.map(s => (
+                      <option key={s.supplier} value={s.supplier}>{s.supplier}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Print Debt Sheet button */}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => window.print()}
+                style={{ padding: '0.35rem 0.65rem', fontSize: '0.74rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                title="Print supplier debt sheet"
+              >
+                <Printer size={13} /> Print Debt Sheet
+              </button>
+            </div>
           </div>
 
           {/* Metric Cards */}
@@ -620,33 +640,60 @@ export default function Reports({ session, settings }) {
                                   <div>{new Date(it.created_at).toLocaleDateString()} {new Date(it.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                                 </td>
                                 <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center' }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleSettlement(it.order_id, it.item_id, it.settlement_status)}
-                                    style={{
-                                      padding: '0.2rem 0.55rem',
-                                      fontSize: '0.68rem',
-                                      fontWeight: 700,
-                                      borderRadius: 'var(--radius-sm)',
-                                      cursor: 'pointer',
-                                      border: 'none',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                      background: it.is_settled ? 'var(--accent-emerald)' : 'var(--accent-amber)',
-                                      color: '#fff'
-                                    }}
-                                  >
-                                    {it.is_settled ? (
-                                      <>
+                                  {it.is_settled ? (
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                                      <span style={{
+                                        padding: '0.18rem 0.45rem',
+                                        fontSize: '0.68rem',
+                                        fontWeight: 700,
+                                        borderRadius: 'var(--radius-sm)',
+                                        background: 'var(--accent-emerald)',
+                                        color: '#fff',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.2rem'
+                                      }}>
                                         <Check size={11} /> Paid
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Clock size={11} /> Mark Paid
-                                      </>
-                                    )}
-                                  </button>
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleSettlement(it.order_id, it.item_id, it.settlement_status)}
+                                        title="Undo / Revert settlement back to unpaid"
+                                        style={{
+                                          padding: '0.18rem 0.35rem',
+                                          fontSize: '0.65rem',
+                                          fontWeight: 600,
+                                          borderRadius: 'var(--radius-sm)',
+                                          border: '1px solid var(--border-light)',
+                                          background: 'var(--bg-surface)',
+                                          color: 'var(--text-muted)',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        ↩ Revert
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleSettlement(it.order_id, it.item_id, it.settlement_status)}
+                                      style={{
+                                        padding: '0.2rem 0.55rem',
+                                        fontSize: '0.68rem',
+                                        fontWeight: 700,
+                                        borderRadius: 'var(--radius-sm)',
+                                        cursor: 'pointer',
+                                        border: 'none',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.25rem',
+                                        background: 'var(--accent-amber)',
+                                        color: '#fff'
+                                      }}
+                                    >
+                                      <Clock size={11} /> Mark Paid
+                                    </button>
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -661,6 +708,242 @@ export default function Reports({ session, settings }) {
           )}
         </>
       )}
+
+      {/* ── OUTBOUND LOANS REPORT ────────────────────────────────────────── */}
+      {activeReport === 'outbound' && (() => {
+        const currencySymbol = settings?.currency_symbol || 'GH₵';
+        const outstandingLoans = allLoans.filter(l => l.status === 'outstanding');
+        const returnedLoans = allLoans.filter(l => l.status === 'returned');
+        const paidLoans = allLoans.filter(l => l.status === 'paid');
+
+        const totalOutCopies = outstandingLoans.reduce((s, l) => s + (parseInt(l.quantity, 10) || 0), 0);
+        const totalOutOwed = outstandingLoans.reduce((s, l) => s + (parseFloat(l.total_owed) || 0), 0);
+        const totalSettledOwed = paidLoans.reduce((s, l) => s + (parseFloat(l.total_owed) || 0), 0);
+
+        // Group outstanding by borrower shop
+        const shopMap = {};
+        allLoans.forEach(loan => {
+          const shop = loan.borrower_name || 'Unknown Shop';
+          if (!shopMap[shop]) {
+            shopMap[shop] = {
+              name: shop,
+              phone: loan.borrower_phone || '',
+              loans: [],
+              outstandingQty: 0,
+              outstandingOwed: 0,
+              paidOwed: 0
+            };
+          }
+          shopMap[shop].loans.push(loan);
+          if (loan.status === 'outstanding') {
+            shopMap[shop].outstandingQty += parseInt(loan.quantity, 10) || 0;
+            shopMap[shop].outstandingOwed += parseFloat(loan.total_owed) || 0;
+          } else if (loan.status === 'paid') {
+            shopMap[shop].paidOwed += parseFloat(loan.total_owed) || 0;
+          }
+        });
+
+        const shopList = Object.values(shopMap);
+
+        const handleQuickLoanStatus = async (loanId, newStatus) => {
+          try {
+            await updateOutboundLoan(loanId, {
+              status: newStatus,
+              settled_at: (newStatus === 'returned' || newStatus === 'paid') ? new Date().toISOString() : null
+            });
+            setAllLoans(prev => prev.map(l => l.id === loanId ? {
+              ...l,
+              status: newStatus,
+              settled_at: (newStatus === 'returned' || newStatus === 'paid') ? new Date().toISOString() : null
+            } : l));
+          } catch (err) {
+            alert('Failed to update: ' + err.message);
+          }
+        };
+
+        return (
+          <>
+            {/* KPI Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.65rem' }}>
+              <MetricCard
+                icon={<Package size={18} color="var(--accent-amber)" />}
+                bg="var(--accent-amber-light)"
+                label="Books Lent to Others"
+                value={totalOutCopies}
+                sub={`${outstandingLoans.length} active loan records`}
+                valueColor="var(--text-main)"
+              />
+              <MetricCard
+                icon={<AlertTriangle size={18} color="var(--accent-rose)" />}
+                bg="var(--accent-rose-light)"
+                label="Debt Owed to Brushwell"
+                value={`${currencySymbol}${totalOutOwed.toFixed(2)}`}
+                sub="Outstanding balance other shops owe"
+                valueColor="var(--accent-rose)"
+              />
+              <MetricCard
+                icon={<CheckCircle2 size={18} color="var(--accent-emerald)" />}
+                bg="var(--accent-emerald-light)"
+                label="Cash Collected"
+                value={`${currencySymbol}${totalSettledOwed.toFixed(2)}`}
+                sub={`${paidLoans.length} loans marked paid`}
+                valueColor="var(--accent-emerald)"
+              />
+              <MetricCard
+                icon={<RotateCcw size={18} color="var(--primary)" />}
+                bg="var(--primary-light)"
+                label="Returned Unsold"
+                value={returnedLoans.reduce((s, l) => s + (parseInt(l.quantity, 10) || 0), 0)}
+                sub={`${returnedLoans.length} loans returned`}
+                valueColor="var(--primary)"
+              />
+            </div>
+
+            {/* Shop-by-Shop Debts */}
+            {shopList.length === 0 ? (
+              <div className="card-glass" style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
+                <Package size={36} color="var(--text-subtle)" style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>No Outbound Loans recorded yet</div>
+                <div style={{ fontSize: '0.75rem', marginTop: '0.2rem' }}>
+                  When other bookshops borrow stock from Brushwell, record it using the "Outbound Loans" button to track debts.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                {shopList.map(shop => (
+                  <div key={shop.name} className="card-glass" style={{ padding: '0.85rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{
+                          background: shop.outstandingOwed > 0 ? 'var(--accent-amber-light)' : 'var(--accent-emerald-light)',
+                          color: shop.outstandingOwed > 0 ? 'var(--accent-amber)' : 'var(--accent-emerald)',
+                          padding: '0.35rem',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex'
+                        }}>
+                          <Package size={16} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                            {shop.name}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {shop.phone && `📞 ${shop.phone} • `}{shop.loans.length} transaction{shop.loans.length !== 1 ? 's' : ''} ({shop.outstandingQty} copies currently out)
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                          Current Debt Owed to You
+                        </div>
+                        <div style={{ fontWeight: 800, fontSize: '1.05rem', color: shop.outstandingOwed > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                          {currencySymbol}{shop.outstandingOwed.toFixed(2)} {shop.outstandingOwed === 0 && <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>(Settled)</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-light)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                            <th style={{ padding: '0.35rem 0.5rem' }}>Book Title & Grade</th>
+                            <th style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>Qty</th>
+                            <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Price/Copy</th>
+                            <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Total Owed</th>
+                            <th style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>Date Lent</th>
+                            <th style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>Status</th>
+                            <th style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shop.loans.map(loan => {
+                            const isOut = loan.status === 'outstanding';
+                            const isPaid = loan.status === 'paid';
+                            return (
+                              <tr key={loan.id} style={{ borderBottom: '1px solid var(--border-subtle)', background: isOut ? 'rgba(245, 158, 11, 0.04)' : 'transparent' }}>
+                                <td style={{ padding: '0.45rem 0.5rem', fontWeight: 600 }}>
+                                  {loan.product_name}
+                                  {loan.grade && (
+                                    <span style={{
+                                      marginLeft: '0.35rem',
+                                      fontSize: '0.62rem',
+                                      fontWeight: 800,
+                                      padding: '0.05rem 0.3rem',
+                                      borderRadius: 'var(--radius-sm)',
+                                      background: 'var(--accent-purple)',
+                                      color: '#fff'
+                                    }}>
+                                      {loan.grade}
+                                    </span>
+                                  )}
+                                  {loan.notes && <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>"{loan.notes}"</div>}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontWeight: 700 }}>
+                                  {loan.quantity}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', color: 'var(--text-muted)' }}>
+                                  {currencySymbol}{parseFloat(loan.unit_price || 0).toFixed(2)}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, color: isOut ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                                  {currencySymbol}{parseFloat(loan.total_owed || 0).toFixed(2)}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                  {new Date(loan.loaned_at || loan.created_at).toLocaleDateString()}
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center' }}>
+                                  <span style={{
+                                    fontSize: '0.65rem',
+                                    fontWeight: 700,
+                                    padding: '0.1rem 0.4rem',
+                                    borderRadius: 'var(--radius-full)',
+                                    background: isOut ? 'var(--accent-amber-light)' : isPaid ? 'var(--accent-emerald-light)' : 'var(--primary-light)',
+                                    color: isOut ? 'hsl(35,90%,22%)' : isPaid ? 'var(--accent-emerald)' : 'var(--primary)'
+                                  }}>
+                                    {loan.status}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center' }}>
+                                  {isOut ? (
+                                    <div style={{ display: 'inline-flex', gap: '0.25rem' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleQuickLoanStatus(loan.id, 'paid')}
+                                        style={{ padding: '0.18rem 0.4rem', fontSize: '0.65rem', fontWeight: 700, borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--accent-emerald)', color: '#fff', cursor: 'pointer' }}
+                                      >
+                                        ✔ Paid
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleQuickLoanStatus(loan.id, 'returned')}
+                                        style={{ padding: '0.18rem 0.4rem', fontSize: '0.65rem', fontWeight: 700, borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--primary)', color: '#fff', cursor: 'pointer' }}
+                                      >
+                                        ↩ Return
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleQuickLoanStatus(loan.id, 'outstanding')}
+                                      style={{ padding: '0.18rem 0.35rem', fontSize: '0.65rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', background: 'var(--bg-surface)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                    >
+                                      ↩ Revert
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Modals */}
       <RefundModal
