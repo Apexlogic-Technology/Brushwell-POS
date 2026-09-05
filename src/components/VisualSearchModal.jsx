@@ -2,9 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   X, Camera, SwitchCamera, Upload, Sparkles, Check, AlertCircle, 
   ShoppingCart, Tag, Search, RefreshCw, BookOpen, Barcode as BarcodeIcon, 
-  ArrowRight, CheckCircle2, ChevronRight, Zap, Info, Settings, Eye
+  ArrowRight, CheckCircle2, ChevronRight, Zap, Info, Settings, Eye, WifiOff, Volume2
 } from 'lucide-react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { 
   analyzeBookCover, 
   extractISBNFromImage, 
@@ -13,6 +12,12 @@ import {
   fileToBase64, 
   canvasToBase64 
 } from '../services/visionService';
+import { 
+  detectFromVideoFrame, 
+  decodeBarcodeFromImageOrCanvas, 
+  compressImageToThumbnail, 
+  isNativeBarcodeDetectorSupported 
+} from '../services/barcodeScannerService';
 import { getSettings } from '../services/supabaseService';
 
 export default function VisualSearchModal({
@@ -22,7 +27,7 @@ export default function VisualSearchModal({
   products = [],
   categories = [],
   onAddToCart,
-  onRegisterProduct, // (initialData) => opens product form
+  onRegisterProduct,
   onOpenSettings
 }) {
   const [activeTab, setActiveTab] = useState(initialMode);
@@ -47,14 +52,19 @@ export default function VisualSearchModal({
 
   // 2-Step Register Mode State: Step 1 = Front Cover, Step 2 = Back Cover
   const [registerStep, setRegisterStep] = useState(1); // 1 = Front, 2 = Back
-  const [frontCoverData, setFrontCoverData] = useState(null); // { image, analysis }
-  const [backCoverData, setBackCoverData] = useState(null); // { image, barcode, isbn }
-  const [isScanningBarcode, setIsScanningBarcode] = useState(false);
+  const [frontCoverData, setFrontCoverData] = useState(null); // { image, thumbnail, analysis }
+  const [backCoverData, setBackCoverData] = useState(null); // { image, barcode }
+
+  // Offline quick title search query (inside modal fallback)
+  const [quickCatalogQuery, setQuickCatalogQuery] = useState('');
 
   const videoRef = useRef(null);
   const fileInputRef = useRef(null);
   const nativeCameraInputRef = useRef(null);
   const isMountedRef = useRef(false);
+  const liveBarcodeIntervalRef = useRef(null);
+  const lastDetectedCodeRef = useRef('');
+  const lastDetectedTimeRef = useRef(0);
 
   const settings = getSettings();
   const hasApiKey = Boolean(settings.gemini_api_key && settings.gemini_api_key.trim());
@@ -68,7 +78,6 @@ export default function VisualSearchModal({
     };
   }, []);
 
-  // When modal opens or initialMode changes
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialMode);
@@ -90,11 +99,17 @@ export default function VisualSearchModal({
     setRegisterStep(1);
     setFrontCoverData(null);
     setBackCoverData(null);
+    setQuickCatalogQuery('');
+    lastDetectedCodeRef.current = '';
   };
 
   // ─── Camera Management ────────────────────────────────────────────────────────
 
   const stopCamera = () => {
+    if (liveBarcodeIntervalRef.current) {
+      clearInterval(liveBarcodeIntervalRef.current);
+      liveBarcodeIntervalRef.current = null;
+    }
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
@@ -110,7 +125,6 @@ export default function VisualSearchModal({
     const mode = overrideFacingMode || facingMode;
 
     try {
-      // Enumerate devices if possible
       if (navigator.mediaDevices?.enumerateDevices) {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(d => d.kind === 'videoinput');
@@ -136,10 +150,15 @@ export default function VisualSearchModal({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play().then(() => {
+          if (!isMountedRef.current) return;
           setIsCameraReady(true);
+          startLiveBarcodeDetection();
         }).catch(err => {
           console.warn('Video play warning:', err);
-          setIsCameraReady(true);
+          if (isMountedRef.current) {
+            setIsCameraReady(true);
+            startLiveBarcodeDetection();
+          }
         });
       }
     } catch (err) {
@@ -164,18 +183,79 @@ export default function VisualSearchModal({
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.15);
+      osc.frequency.setValueAtTime(1050, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1400, ctx.currentTime + 0.12);
       gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
-      osc.stop(ctx.currentTime + 0.2);
+      osc.stop(ctx.currentTime + 0.15);
     } catch (e) {}
   }, []);
 
-  // ─── Shutter Snapshot ────────────────────────────────────────────────────────
+  // ─── Live Video Stream Hardware Barcode Detection (100% Offline) ───────────
+
+  const startLiveBarcodeDetection = () => {
+    if (liveBarcodeIntervalRef.current) clearInterval(liveBarcodeIntervalRef.current);
+
+    liveBarcodeIntervalRef.current = setInterval(async () => {
+      if (!isMountedRef.current || !videoRef.current || videoRef.current.readyState < 2) return;
+
+      const code = await detectFromVideoFrame(videoRef.current);
+      if (code) {
+        handleBarcodeScannedOffline(code);
+      }
+    }, 65);
+  };
+
+  const handleBarcodeScannedOffline = (rawCode) => {
+    const code = String(rawCode || '').trim();
+    if (!code) return;
+
+    const now = Date.now();
+    if (code === lastDetectedCodeRef.current && now - lastDetectedTimeRef.current < 1500) return;
+    if (now - lastDetectedTimeRef.current < 400) return;
+    lastDetectedCodeRef.current = code;
+    lastDetectedTimeRef.current = now;
+
+    playSuccessSound();
+
+    // In Register mode Step 2:
+    if (activeTab === 'register' && registerStep === 2) {
+      setBackCoverData({
+        barcode: code
+      });
+      setStatusMessage(`✔ Scanned Barcode / ISBN: ${code}`);
+      return;
+    }
+
+    // In Snap-to-Cart or Price Check:
+    const match = (Array.isArray(products) ? products : []).find(p => 
+      p && (String(p.barcode || '').trim() === code || String(p.id || '').trim() === code)
+    );
+
+    setAnalysisResult({
+      title: match ? match.product_name : `Scanned Barcode: ${code}`,
+      publisher: match?.publisher || '',
+      isbn: code,
+      confidence: 1.0
+    });
+    setMatchedProduct(match || null);
+    setMatchScore(match ? 1.0 : 0);
+
+    if (match && activeTab === 'snap_cart' && onAddToCart) {
+      onAddToCart(match);
+      setAddedToCartSuccess(true);
+      setStatusMessage(`Added "${match.product_name}" to cart!`);
+    } else if (match) {
+      setStatusMessage(`Found: ${match.product_name} — ${currencySymbol}${(match.retail_price || 0).toFixed(2)}`);
+    } else {
+      setStatusMessage(`Barcode ${code} not yet in inventory.`);
+    }
+  };
+
+  // ─── Shutter Snapshot & Photo Handlers ─────────────────────────────────────
 
   const capturePhoto = async () => {
     if (!videoRef.current || !isCameraReady) return;
@@ -190,15 +270,13 @@ export default function VisualSearchModal({
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const { base64, mimeType } = canvasToBase64(canvas);
-    const dataUrl = `data:${mimeType};base64,${base64}`;
-    setCapturedImage(dataUrl);
+    const thumbnail = await compressImageToThumbnail(canvas);
+    setCapturedImage(thumbnail);
 
-    // Process photo depending on active mode & step
     if (activeTab === 'register' && registerStep === 2) {
-      await processBackCover(canvas, base64, mimeType);
+      await processBackCover(canvas);
     } else {
-      await processFrontCover(base64, mimeType, dataUrl);
+      await processFrontCover(canvas, thumbnail);
     }
   };
 
@@ -210,24 +288,19 @@ export default function VisualSearchModal({
     setErrorMsg('');
 
     try {
-      const { base64, mimeType } = await fileToBase64(file);
-      const dataUrl = `data:${mimeType};base64,${base64}`;
-      setCapturedImage(dataUrl);
+      const thumbnail = await compressImageToThumbnail(file);
+      setCapturedImage(thumbnail);
 
       if (activeTab === 'register' && registerStep === 2) {
-        // Need canvas or file for barcode detection
-        const img = new Image();
-        img.onload = async () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0);
-          await processBackCover(canvas, base64, mimeType, file);
-        };
-        img.src = dataUrl;
+        await processBackCover(null, file);
       } else {
-        await processFrontCover(base64, mimeType, dataUrl);
+        const imgBitmap = await createImageBitmap(file);
+        const canvas = document.createElement('canvas');
+        canvas.width = imgBitmap.width;
+        canvas.height = imgBitmap.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imgBitmap, 0, 0);
+        await processFrontCover(canvas, thumbnail);
       }
     } catch (err) {
       setErrorMsg(err.message || 'Failed to read image file');
@@ -237,143 +310,100 @@ export default function VisualSearchModal({
     }
   };
 
-  // ─── Front Cover Processing ──────────────────────────────────────────────────
+  // ─── Front Cover Processing (Offline Barcode check + Optional AI) ───────────
 
-  const processFrontCover = async (base64, mimeType, previewDataUrl) => {
-    if (!hasApiKey) {
-      setErrorMsg('Please enter your Google Gemini API key in Settings → AI Vision to enable book recognition.');
-      return;
-    }
-
+  const processFrontCover = async (canvas, thumbnail) => {
     setIsProcessing(true);
-    setStatusMessage('Reading book cover with AI...');
     setErrorMsg('');
     setAddedToCartSuccess(false);
 
-    try {
-      const analysis = await analyzeBookCover(base64, mimeType);
-      setAnalysisResult(analysis);
+    // 1. Check if the photo contains a barcode (100% Offline)
+    setStatusMessage('Scanning image...');
+    const detectedBarcode = await decodeBarcodeFromImageOrCanvas(canvas);
+    if (detectedBarcode) {
+      handleBarcodeScannedOffline(detectedBarcode);
+      setIsProcessing(false);
+      return;
+    }
 
-      if (!analysis.title && !analysis.isbn) {
-        setErrorMsg('Could not clearly detect a book title. Please ensure the book cover is well-lit and facing the camera.');
-        setIsProcessing(false);
-        return;
+    // 2. If online and has Gemini key, try reading title/publisher
+    let aiSucceeded = false;
+    if (hasApiKey) {
+      setStatusMessage('Reading title with AI...');
+      try {
+        const { base64, mimeType } = canvasToBase64(canvas);
+        const analysis = await analyzeBookCover(base64, mimeType);
+        if (analysis && (analysis.title || analysis.isbn)) {
+          aiSucceeded = true;
+          setAnalysisResult(analysis);
+          const match = matchProductByVisual(analysis, products);
+          setMatchedProduct(match.product);
+          setMatchScore(match.score);
+
+          if (match.product) {
+            playSuccessSound();
+            if (activeTab === 'snap_cart' && onAddToCart) {
+              onAddToCart(match.product);
+              setAddedToCartSuccess(true);
+              setStatusMessage(`Added "${match.product.product_name}" to cart!`);
+            }
+          }
+
+          if (activeTab === 'register') {
+            setFrontCoverData({
+              image: thumbnail,
+              thumbnail,
+              analysis
+            });
+            setRegisterStep(2);
+          }
+        }
+      } catch (err) {
+        console.warn('AI offline or timed out:', err.message);
       }
+    }
 
-      // Check matching in existing product catalog
-      const match = matchProductByVisual(analysis, products);
-      setMatchedProduct(match.product);
-      setMatchScore(match.score);
-
-      if (match.product) {
-        playSuccessSound();
-      }
-
-      // In Register mode: store front cover data and prompt for back cover
+    // 3. Graceful Offline fallback
+    if (!aiSucceeded) {
       if (activeTab === 'register') {
         setFrontCoverData({
-          image: previewDataUrl,
-          analysis
+          image: thumbnail,
+          thumbnail,
+          analysis: { title: '', publisher: '', category_hint: '' }
         });
         setRegisterStep(2);
+        setStatusMessage('Front cover photo saved! Now scan or snap the back cover barcode.');
+      } else {
         setStatusMessage('');
-      } else if (activeTab === 'snap_cart' && match.product && onAddToCart) {
-        // Automatically or 1-click add to cart
-        onAddToCart(match.product);
-        setAddedToCartSuccess(true);
-        setStatusMessage(`Added "${match.product.product_name}" to cart!`);
+        setErrorMsg('No barcode found on front cover. Flip to the back cover to scan barcode, or search from catalog below:');
       }
-    } catch (err) {
-      console.error('Vision processing error:', err);
-      setErrorMsg(err.message || 'Failed to analyze book cover.');
-    } finally {
-      setIsProcessing(false);
     }
+
+    setIsProcessing(false);
   };
 
-  // ─── Back Cover Processing (Barcode & ISBN Detection) ────────────────────────
+  // ─── Back Cover Processing (100% Offline Barcode & ISBN Detection) ──────────
 
-  const processBackCover = async (canvas, base64, mimeType, originalFile = null) => {
+  const processBackCover = async (canvas, originalFile = null) => {
     setIsProcessing(true);
-    setIsScanningBarcode(true);
-    setStatusMessage('Scanning ISBN barcode from back cover...');
+    setStatusMessage('Scanning barcode from back cover...');
     setErrorMsg('');
 
-    let detectedBarcode = '';
-
     try {
-      // 1. Native BarcodeDetector
-      if (typeof window !== 'undefined' && 'BarcodeDetector' in window && canvas) {
-        try {
-          const detector = new window.BarcodeDetector({
-            formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e']
-          });
-          const results = await detector.detect(canvas);
-          if (results && results.length > 0 && results[0].rawValue) {
-            detectedBarcode = results[0].rawValue;
-          }
-        } catch (e) {
-          console.warn('Native BarcodeDetector pass failed:', e);
-        }
+      const detectedBarcode = await decodeBarcodeFromImageOrCanvas(canvas || originalFile);
+      if (detectedBarcode) {
+        setBackCoverData({
+          barcode: detectedBarcode
+        });
+        playSuccessSound();
+        setStatusMessage(`✔ Found Barcode: ${detectedBarcode}`);
+      } else {
+        setErrorMsg('Could not detect barcode from back cover. Hold camera closer, adjust light, or enter manually.');
       }
-
-      // 2. Html5Qrcode scanFile fallback
-      if (!detectedBarcode) {
-        try {
-          let fileToScan = originalFile;
-          if (!fileToScan && canvas) {
-            const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.95));
-            if (blob) fileToScan = new File([blob], 'back.jpg', { type: 'image/jpeg' });
-          }
-
-          if (fileToScan) {
-            const tempDivId = 'brushwell-vision-barcode-temp';
-            let tempDiv = document.getElementById(tempDivId);
-            if (!tempDiv) {
-              tempDiv = document.createElement('div');
-              tempDiv.id = tempDivId;
-              tempDiv.style.display = 'none';
-              document.body.appendChild(tempDiv);
-            }
-
-            const fileScanner = new Html5Qrcode(tempDivId, {
-              formatsToSupport: [
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.UPC_A,
-                Html5QrcodeSupportedFormats.UPC_E
-              ],
-              verbose: false
-            });
-
-            detectedBarcode = await fileScanner.scanFile(fileToScan, false).catch(() => '');
-          }
-        } catch (e) {
-          console.warn('Html5Qrcode file scan failed:', e);
-        }
-      }
-
-      // 3. Gemini Vision OCR fallback for ISBN digits
-      if (!detectedBarcode && hasApiKey) {
-        setStatusMessage('Reading printed ISBN digits with AI...');
-        detectedBarcode = await extractISBNFromImage(base64, mimeType).catch(() => '');
-      }
-
-      const finalBarcode = detectedBarcode || (frontCoverData?.analysis?.isbn || '');
-      setBackCoverData({
-        image: `data:${mimeType};base64,${base64}`,
-        barcode: finalBarcode
-      });
-
-      playSuccessSound();
-      setStatusMessage(finalBarcode ? `Found ISBN Barcode: ${finalBarcode}` : 'No barcode found, generated placeholder.');
     } catch (err) {
-      console.error('Back cover processing error:', err);
-      setErrorMsg('Could not detect barcode from back cover. You can enter it manually.');
+      setErrorMsg('Error processing back cover: ' + err.message);
     } finally {
       setIsProcessing(false);
-      setIsScanningBarcode(false);
     }
   };
 
@@ -385,7 +415,6 @@ export default function VisualSearchModal({
     const front = frontCoverData?.analysis || {};
     const barcode = backCoverData?.barcode || front.isbn || Math.floor(100000000000 + Math.random() * 900000000000).toString();
 
-    // Check if barcode or title already exists in products
     const existing = products.find(p => 
       p && (
         (barcode && String(p.barcode) === String(barcode)) ||
@@ -405,12 +434,23 @@ export default function VisualSearchModal({
       retail_price: existing?.retail_price || '',
       wholesale_price: existing?.wholesale_price || '',
       stock_quantity: existing?.stock_quantity != null ? String(existing.stock_quantity) : '10000',
-      product_image: existing?.product_image || ''
+      product_image: existing?.product_image || frontCoverData?.thumbnail || ''
     };
 
     onClose();
     onRegisterProduct(existing || null, barcode, initialData);
   };
+
+  // Filter products for the in-modal offline search fallback
+  const filteredQuickProducts = quickCatalogQuery.trim()
+    ? products.filter(p => {
+        if (!p) return false;
+        const q = quickCatalogQuery.toLowerCase();
+        return (p.product_name || '').toLowerCase().includes(q) ||
+               (p.publisher || '').toLowerCase().includes(q) ||
+               String(p.barcode || '').includes(q);
+      }).slice(0, 5)
+    : [];
 
   if (!isOpen) return null;
 
@@ -454,11 +494,24 @@ export default function VisualSearchModal({
               <Camera size={18} />
             </div>
             <div>
-              <h3 style={{ fontSize: '1rem', fontWeight: 800, lineHeight: 1.2 }}>
-                Visual Book Recognition
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 800, lineHeight: 1.2, margin: 0 }}>
+                  Smart Visual Book Scanner
+                </h3>
+                <span style={{
+                  fontSize: '0.65rem',
+                  padding: '0.1rem 0.4rem',
+                  borderRadius: 'var(--radius-full)',
+                  background: 'var(--accent-emerald-light)',
+                  color: 'var(--accent-emerald)',
+                  fontWeight: 700,
+                  border: '1px solid var(--accent-emerald)'
+                }}>
+                  ⚡ 100% Offline
+                </span>
+              </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                Powered by Google Gemini 1.5 Flash AI
+                Instant Barcode, Cover Photo & Catalog Match
               </div>
             </div>
           </div>
@@ -553,34 +606,6 @@ export default function VisualSearchModal({
           </button>
         </div>
 
-        {/* Missing API Key Warning */}
-        {!hasApiKey && (
-          <div style={{
-            padding: '0.65rem 1rem',
-            background: 'var(--accent-amber-light)',
-            borderBottom: '1px solid var(--accent-amber)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '0.6rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--accent-amber-text, #92400e)' }}>
-              <AlertCircle size={16} style={{ flexShrink: 0 }} />
-              <span>Gemini API Key missing. Add your free key in Settings to activate AI vision.</span>
-            </div>
-            {onOpenSettings && (
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => { onClose(); onOpenSettings(); }}
-                style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem', flexShrink: 0, gap: '0.3rem' }}
-              >
-                <Settings size={13} /> Settings
-              </button>
-            )}
-          </div>
-        )}
-
         {/* Modal Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
 
@@ -604,7 +629,7 @@ export default function VisualSearchModal({
                 color: '#fff',
                 fontSize: '0.72rem'
               }}>
-                Step 1: Front
+                Step 1: Front Cover
               </div>
               <ChevronRight size={14} color="var(--text-muted)" />
               <div style={{
@@ -615,10 +640,10 @@ export default function VisualSearchModal({
                 border: '1px solid var(--border-light)',
                 fontSize: '0.72rem'
               }}>
-                Step 2: Back & Barcode
+                Step 2: Back Barcode
               </div>
               <span style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-                {registerStep === 1 ? 'Take photo of Front Cover' : 'Take photo of Back Cover (ISBN)'}
+                {registerStep === 1 ? 'Snap Front Cover' : 'Aim at Back Barcode'}
               </span>
             </div>
           )}
@@ -677,7 +702,7 @@ export default function VisualSearchModal({
               }}>
                 <div style={{
                   alignSelf: 'center',
-                  background: 'rgba(0,0,0,0.6)',
+                  background: 'rgba(0,0,0,0.65)',
                   color: '#fff',
                   fontSize: '0.72rem',
                   padding: '2px 8px',
@@ -685,20 +710,20 @@ export default function VisualSearchModal({
                   backdropFilter: 'blur(4px)'
                 }}>
                   {activeTab === 'register' && registerStep === 2
-                    ? 'Align Barcode / ISBN inside frame'
-                    : 'Align Book Cover inside frame'}
+                    ? '⚡ Aim at Back Barcode / ISBN (Auto-Scans Live)'
+                    : '⚡ Aim at Barcode or Book Cover to Snap'}
                 </div>
 
                 <div style={{
                   alignSelf: 'center',
-                  background: 'rgba(0,0,0,0.6)',
-                  color: 'rgba(255,255,255,0.8)',
+                  background: 'rgba(0,0,0,0.65)',
+                  color: 'rgba(255,255,255,0.85)',
                   fontSize: '0.68rem',
                   padding: '2px 8px',
                   borderRadius: '12px',
                   backdropFilter: 'blur(4px)'
                 }}>
-                  Hold steady & ensure good lighting
+                  Live Auto-Scan Active • Hold Steady
                 </div>
               </div>
             )}
@@ -887,7 +912,7 @@ export default function VisualSearchModal({
               gap: '0.5rem'
             }}>
               <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
-              <span>{statusMessage || 'Analyzing image with AI...'}</span>
+              <span>{statusMessage || 'Processing image...'}</span>
             </div>
           )}
 
@@ -956,7 +981,7 @@ export default function VisualSearchModal({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
                 <div>
                   <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700 }}>
-                    AI Detected Title
+                    Detected Book
                   </div>
                   <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-main)', marginTop: '2px' }}>
                     {analysisResult.title || 'Untitled Book'}
@@ -1035,7 +1060,7 @@ export default function VisualSearchModal({
                   )}
                 </div>
               ) : (
-                /* No Catalog Match Option: Register it directly! */
+                /* No Catalog Match Option: Register it directly */
                 <div style={{
                   background: 'var(--bg-surface)',
                   border: '1px dashed var(--border-light)',
@@ -1047,7 +1072,7 @@ export default function VisualSearchModal({
                   gap: '0.5rem'
                 }}>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                    This book is not currently in your inventory database.
+                    This book is not currently in your inventory catalog.
                   </div>
                   {onRegisterProduct && (
                     <button
@@ -1057,6 +1082,7 @@ export default function VisualSearchModal({
                         setActiveTab('register');
                         setFrontCoverData({
                           image: capturedImage,
+                          thumbnail: capturedImage,
                           analysis: analysisResult
                         });
                         setRegisterStep(2);
@@ -1066,6 +1092,64 @@ export default function VisualSearchModal({
                       <BookOpen size={14} /> Register Book
                     </button>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── Offline Quick Catalog Search Fallback ─── */}
+          {(activeTab === 'snap_cart' || activeTab === 'price_check') && (
+            <div style={{
+              background: 'var(--bg-surface-elevated)',
+              border: '1px solid var(--border-light)',
+              borderRadius: 'var(--radius-md)',
+              padding: '0.65rem 0.85rem'
+            }}>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '0.35rem', fontWeight: 600 }}>
+                Can't flip to barcode? Quick search offline catalog:
+              </div>
+              <div style={{ position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Type title or grade to pick..."
+                  value={quickCatalogQuery}
+                  onChange={e => setQuickCatalogQuery(e.target.value)}
+                  style={{ paddingLeft: '1.8rem', fontSize: '0.8rem', height: '32px' }}
+                />
+              </div>
+
+              {filteredQuickProducts.length > 0 && (
+                <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  {filteredQuickProducts.map(p => (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        setMatchedProduct(p);
+                        setAnalysisResult({ title: p.product_name, publisher: p.publisher, isbn: p.barcode });
+                        if (activeTab === 'snap_cart' && onAddToCart) {
+                          onAddToCart(p);
+                          setAddedToCartSuccess(true);
+                        }
+                        setQuickCatalogQuery('');
+                      }}
+                      style={{
+                        padding: '0.35rem 0.6rem',
+                        background: 'var(--bg-surface)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-sm)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        fontSize: '0.78rem'
+                      }}
+                    >
+                      <span style={{ fontWeight: 700 }}>{p.product_name}</span>
+                      <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{currencySymbol}{(p.retail_price || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1083,7 +1167,7 @@ export default function VisualSearchModal({
               gap: '0.65rem'
             }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                Extracted Book Details
+                Captured Book Details
               </div>
 
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
@@ -1096,10 +1180,10 @@ export default function VisualSearchModal({
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 800, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {frontCoverData.analysis.title || 'Untitled'}
+                    {frontCoverData.analysis.title || 'Front Cover Photo Captured'}
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {[frontCoverData.analysis.publisher, frontCoverData.analysis.category_hint].filter(Boolean).join(' • ')}
+                    {[frontCoverData.analysis.publisher, frontCoverData.analysis.category_hint].filter(Boolean).join(' • ') || 'Ready to enter title'}
                   </div>
                   {backCoverData && (
                     <div style={{
@@ -1108,20 +1192,20 @@ export default function VisualSearchModal({
                       alignItems: 'center',
                       gap: '0.3rem',
                       fontSize: '0.72rem',
-                      background: 'var(--primary-light)',
-                      color: 'var(--primary)',
+                      background: 'var(--accent-emerald-light)',
+                      color: 'var(--accent-emerald)',
                       padding: '0.15rem 0.5rem',
                       borderRadius: 'var(--radius-sm)',
                       fontWeight: 700
                     }}>
                       <BarcodeIcon size={13} />
-                      <span>ISBN: {backCoverData.barcode || 'Generated'}</span>
+                      <span>Barcode: {backCoverData.barcode}</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Ready to open product form button */}
+              {/* Finish register button */}
               <button
                 type="button"
                 className="btn-primary"
@@ -1130,7 +1214,7 @@ export default function VisualSearchModal({
               >
                 <Check size={16} />
                 <span>
-                  {backCoverData ? 'Open Form with Title & Barcode Pre-Filled' : 'Skip Back Cover & Open Form'}
+                  {backCoverData ? 'Open Form with Barcode & Photo Attached' : 'Open Product Form to Complete'}
                 </span>
               </button>
             </div>
@@ -1148,7 +1232,7 @@ export default function VisualSearchModal({
           alignItems: 'center'
         }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-            Tip: Hold camera 15–20cm away in good light
+            Tip: Point at barcode on back of book for instant offline scan
           </div>
           <button 
             type="button" 

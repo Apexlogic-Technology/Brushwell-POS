@@ -5,7 +5,7 @@
 import { getSettings } from './supabaseService';
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const MODEL = 'gemini-1.5-flash-latest';
+const MODELS = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-8b'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -18,7 +18,6 @@ export async function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      // result is like "data:image/jpeg;base64,/9j/..."
       const result = reader.result;
       const comma = result.indexOf(',');
       const base64 = result.substring(comma + 1);
@@ -48,8 +47,13 @@ export async function testGeminiApiKey(apiKey) {
   if (!apiKey || !apiKey.trim()) {
     return { ok: false, error: 'Please enter a Gemini API key.' };
   }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
   try {
-    const res = await fetch(`${GEMINI_API_BASE}?key=${apiKey.trim()}`);
+    const res = await fetch(`${GEMINI_API_BASE}?key=${apiKey.trim()}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       const msg = data?.error?.message || `HTTP ${res.status}`;
@@ -57,12 +61,16 @@ export async function testGeminiApiKey(apiKey) {
     }
     return { ok: true };
   } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      return { ok: false, error: 'Connection timed out. Check your internet connection.' };
+    }
     return { ok: false, error: err.message || 'Network error connecting to Gemini API' };
   }
 }
 
 /**
- * Core Gemini Vision call.
+ * Core Gemini Vision call with model fallbacks and timeout.
  * @param {string} prompt
  * @param {string} imageBase64
  * @param {string} mimeType
@@ -70,50 +78,69 @@ export async function testGeminiApiKey(apiKey) {
  */
 async function callGemini(prompt, imageBase64, mimeType = 'image/jpeg') {
   const settings = getSettings();
-  const apiKey = settings.gemini_api_key;
+  const apiKey = (settings.gemini_api_key || '').trim();
   if (!apiKey) {
-    throw new Error('Gemini API key is not configured. Please add it in ⚙ Settings → AI Vision.');
+    throw new Error('Gemini API key is not configured.');
   }
 
-  const url = `${GEMINI_API_BASE}/${MODEL}:generateContent?key=${apiKey}`;
+  let lastError = null;
 
-  const body = {
-    contents: [
-      {
-        parts: [
-          { text: prompt },
-          {
-            inline_data: {
-              mime_type: mimeType,
-              data: imageBase64
+  for (const model of MODELS) {
+    const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
+    const body = {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: imageBase64
+              }
             }
-          }
-        ]
+          ]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 512
       }
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 512
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const msg = err?.error?.message || `HTTP ${res.status}`;
+        lastError = new Error(msg);
+        if (res.status === 404) continue; // try next model
+        throw lastError;
+      }
+
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return text.trim();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      lastError = err;
+      if (err.name === 'AbortError') {
+        throw new Error('Network timeout reaching Google AI (offline). Switched to offline mode.');
+      }
+      if (err.message && err.message.includes('API_KEY')) throw err;
     }
-  };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const msg = err?.error?.message || `HTTP ${res.status}`;
-    if (res.status === 400 && msg.includes('API_KEY')) throw new Error('Invalid Gemini API key. Please check your key in Settings.');
-    if (res.status === 429) throw new Error('Gemini rate limit reached. Please wait a moment and try again.');
-    throw new Error(`Gemini API error: ${msg}`);
   }
 
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return text.trim();
+  throw lastError || new Error('Network offline or Google AI service unreachable.');
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

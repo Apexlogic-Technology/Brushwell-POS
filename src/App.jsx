@@ -17,6 +17,7 @@ import RefundModal from './components/RefundModal';
 import OutboundLoansModal from './components/OutboundLoansModal';
 
 import { fetchProducts, getSettings, fetchOutboundLoans } from './services/supabaseService';
+import { initHardwareBarcodeListener } from './services/barcodeScannerService';
 
 // Ghana Education System book categories (mirrors ProductManagement.jsx DEFAULT_CATEGORIES)
 const GH_BOOK_CATEGORIES = [
@@ -148,6 +149,22 @@ export default function App() {
       setActiveTab('sell');
     }
   };
+
+  // Global Hardware USB / Bluetooth Barcode Scanner Listener
+  useEffect(() => {
+    if (!session) return;
+    const cleanup = initHardwareBarcodeListener((code) => {
+      const cleanCode = (code || '').trim().toLowerCase();
+      const matched = products.find(p => 
+        (p.barcode || '').trim().toLowerCase() === cleanCode ||
+        String(p.id || '').trim().toLowerCase() === cleanCode
+      );
+      if (matched) {
+        handleScanResult(code, matched);
+      }
+    });
+    return cleanup;
+  }, [session, products]);
 
   const handleCheckoutSuccess = (order) => {
     setLastOrder(order);

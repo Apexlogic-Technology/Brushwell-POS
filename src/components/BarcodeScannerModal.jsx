@@ -5,26 +5,12 @@ import {
   Barcode as BarcodeIcon, Camera, Zap, ZapOff, Upload, SwitchCamera, Loader,
   Image as ImageIcon, Sparkles, Aperture
 } from 'lucide-react';
-
-// All 1D & 2D barcode formats supported by html5-qrcode
-const ALL_BARCODE_FORMATS = [
-  Html5QrcodeSupportedFormats.EAN_13,
-  Html5QrcodeSupportedFormats.EAN_8,
-  Html5QrcodeSupportedFormats.CODE_128,
-  Html5QrcodeSupportedFormats.CODE_39,
-  Html5QrcodeSupportedFormats.CODE_93,
-  Html5QrcodeSupportedFormats.UPC_A,
-  Html5QrcodeSupportedFormats.UPC_E,
-  Html5QrcodeSupportedFormats.UPC_EAN_EXTENSION,
-  Html5QrcodeSupportedFormats.ITF,
-  Html5QrcodeSupportedFormats.QR_CODE,
-  Html5QrcodeSupportedFormats.DATA_MATRIX,
-  Html5QrcodeSupportedFormats.PDF_417,
-  Html5QrcodeSupportedFormats.CODABAR,
-  Html5QrcodeSupportedFormats.AZTEC,
-  Html5QrcodeSupportedFormats.RSS_14,
-  Html5QrcodeSupportedFormats.RSS_EXPANDED,
-].filter(Boolean);
+import { 
+  detectFromVideoFrame, 
+  decodeBarcodeFromImageOrCanvas, 
+  isNativeBarcodeDetectorSupported,
+  ALL_BARCODE_FORMATS
+} from '../services/barcodeScannerService';
 
 const SCANNER_REGION_ID = 'brushwell-barcode-region';
 const FILE_SCANNER_REGION_ID = 'brushwell-file-barcode-region';
@@ -45,6 +31,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
   const [shutterFlash, setShutterFlash]         = useState(false);
 
   const scannerRef            = useRef(null);
+  const liveIntervalRef       = useRef(null);
   const lastScanTimeRef       = useRef(0);
   const lastScannedCodeRef    = useRef('');
   const isMountedRef          = useRef(false);
@@ -125,6 +112,10 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
   }, [products, onClose, onScanSuccess, playBeep]);
 
   const stopScanner = useCallback(async () => {
+    if (liveIntervalRef.current) {
+      clearInterval(liveIntervalRef.current);
+      liveIntervalRef.current = null;
+    }
     const instance = scannerRef.current;
     if (!instance) return;
     scannerRef.current = null;
@@ -196,14 +187,9 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     });
     scannerRef.current = instance;
 
-    // 3. Scan configuration with wide qrbox
+    // 3. Scan configuration with full viewfinder coverage
     const config = {
-      fps: 20,
-      qrbox: (viewfinderWidth, viewfinderHeight) => {
-        const w = Math.min(viewfinderWidth - 10, Math.max(260, Math.floor(viewfinderWidth * 0.94)));
-        const h = Math.min(viewfinderHeight - 10, Math.max(150, Math.floor(viewfinderHeight * 0.78)));
-        return { width: Math.round(w), height: Math.round(h) };
-      },
+      fps: 15,
       disableFlip: false,
     };
 
@@ -250,6 +236,21 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
       setIsScanning(true);
       setIsInitializing(false);
       setScanError(null);
+
+      // Start high-speed native hardware BarcodeDetector loop on video element
+      if (isNativeBarcodeDetectorSupported()) {
+        if (liveIntervalRef.current) clearInterval(liveIntervalRef.current);
+        liveIntervalRef.current = setInterval(async () => {
+          if (!isMountedRef.current || !scannerRef.current) return;
+          const videoEl = document.querySelector(`#${SCANNER_REGION_ID} video`);
+          if (videoEl && videoEl.readyState >= 2) {
+            const code = await detectFromVideoFrame(videoEl);
+            if (code) {
+              handleBarcodeDecoded(code);
+            }
+          }
+        }, 65);
+      }
 
       // Check torch capabilities
       try {
@@ -318,87 +319,8 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
   };
 
   // Decode a canvas or image with multi-pass decoding
-  const decodeImageOrCanvas = async (sourceCanvasOrFile) => {
-    let decodedText = null;
-
-    // Pass 1: Try native BarcodeDetector if available
-    if (typeof window !== 'undefined' && 'BarcodeDetector' in window && sourceCanvasOrFile instanceof HTMLCanvasElement) {
-      try {
-        const detector = new window.BarcodeDetector({
-          formats: [
-            'ean_13', 'ean_8', 'code_128', 'code_39', 'code_93', 
-            'upc_a', 'upc_e', 'qr_code', 'itf', 'codabar', 'data_matrix', 'pdf417'
-          ]
-        });
-        const results = await detector.detect(sourceCanvasOrFile);
-        if (results && results.length > 0) {
-          decodedText = results[0].rawValue;
-        }
-      } catch (e) {
-        console.warn('Native BarcodeDetector pass failed:', e);
-      }
-    }
-
-    // Pass 2: Html5Qrcode file scan
-    if (!decodedText) {
-      let fileToScan = sourceCanvasOrFile;
-      if (sourceCanvasOrFile instanceof HTMLCanvasElement) {
-        const blob = await new Promise(resolve => sourceCanvasOrFile.toBlob(resolve, 'image/jpeg', 0.95));
-        if (blob) {
-          fileToScan = new File([blob], 'snapshot.jpg', { type: 'image/jpeg' });
-        }
-      }
-
-      if (fileToScan instanceof File || fileToScan instanceof Blob) {
-        const fileScanner = new Html5Qrcode(FILE_SCANNER_REGION_ID, {
-          formatsToSupport: ALL_BARCODE_FORMATS,
-          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-          verbose: false,
-        });
-
-        try {
-          decodedText = await fileScanner.scanFile(fileToScan, /* showImage= */ false);
-        } catch (err) {
-          // Pass 3: Contrast boosted canvas fallback (if it was an image file)
-          if (fileToScan instanceof File && typeof window !== 'undefined') {
-            try {
-              const imgBitmap = await createImageBitmap(fileToScan);
-              const boostCanvas = document.createElement('canvas');
-              boostCanvas.width = imgBitmap.width;
-              boostCanvas.height = imgBitmap.height;
-              const ctx = boostCanvas.getContext('2d', { willReadFrequently: true });
-              ctx.drawImage(imgBitmap, 0, 0);
-              
-              // Boost contrast
-              const imgData = ctx.getImageData(0, 0, boostCanvas.width, boostCanvas.height);
-              const data = imgData.data;
-              for (let i = 0; i < data.length; i += 4) {
-                // Grayscale
-                const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-                // High contrast curve
-                const contrast = (gray > 120 ? Math.min(255, gray * 1.2) : Math.max(0, gray * 0.7));
-                data[i] = contrast;
-                data[i + 1] = contrast;
-                data[i + 2] = contrast;
-              }
-              ctx.putImageData(imgData, 0, 0);
-
-              const boostedBlob = await new Promise(resolve => boostCanvas.toBlob(resolve, 'image/jpeg', 0.95));
-              if (boostedBlob) {
-                const boostedFile = new File([boostedBlob], 'boosted.jpg', { type: 'image/jpeg' });
-                decodedText = await fileScanner.scanFile(boostedFile, false);
-              }
-            } catch (boostErr) {
-              console.warn('Boost pass failed:', boostErr);
-            }
-          }
-        } finally {
-          try { fileScanner.clear(); } catch (e) { /* ignore */ }
-        }
-      }
-    }
-
-    return decodedText;
+  const decodeBarcodeFromImageOrCanvas = async (sourceCanvasOrFile) => {
+    return await decodeBarcodeFromImageOrCanvas(sourceCanvasOrFile);
   };
 
   // Feature: Take a Snapshot from the active live camera view
@@ -425,7 +347,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
 
-      const decodedText = await decodeImageOrCanvas(canvas);
+      const decodedText = await decodeBarcodeFromImageOrCanvas(canvas);
       if (decodedText) {
         handleBarcodeDecoded(decodedText);
       } else {
@@ -446,14 +368,14 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     setScanError(null);
 
     try {
-      const decodedText = await decodeImageOrCanvas(file);
+      const decodedText = await decodeBarcodeFromImageOrCanvas(file);
       if (decodedText) {
         handleBarcodeDecoded(decodedText);
       } else {
         setScanError('No barcode or ISBN recognized in the picture. Ensure the barcode bars are sharp and well-lit.');
       }
     } catch (err) {
-      setScanError('Could not process photo. Please try a clearer image or use manual entry.');
+      setScanError('Image processing error: ' + (err.message || 'Unknown error'));
     } finally {
       setIsProcessingPicture(false);
       if (e.target) e.target.value = '';
@@ -464,6 +386,8 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     e.preventDefault();
     const trimmed = manualCode.trim();
     if (!trimmed) return;
+
+    playBeep();
 
     const match = (Array.isArray(products) ? products : [])
       .filter(Boolean)
@@ -500,20 +424,12 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
             position: relative !important;
             background: #000 !important;
           }
-          #${SCANNER_REGION_ID} canvas { display: none !important; }
           #${SCANNER_REGION_ID} video { 
             width: 100% !important; 
             height: 100% !important; 
             object-fit: contain !important; 
             border-radius: 8px;
           }
-          #${SCANNER_REGION_ID} img { display: none !important; }
-          #${SCANNER_REGION_ID} > div { 
-            border: none !important; 
-            box-shadow: none !important;
-            background: transparent !important;
-          }
-          #${SCANNER_REGION_ID} > div > div { display: none !important; }
           #${FILE_SCANNER_REGION_ID} { display: none; }
         `}</style>
 
