@@ -8,23 +8,20 @@
 
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
-export const ALL_BARCODE_FORMATS = [
+export const CORE_RETAIL_BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
   Html5QrcodeSupportedFormats.EAN_8,
   Html5QrcodeSupportedFormats.CODE_128,
-  Html5QrcodeSupportedFormats.CODE_39,
-  Html5QrcodeSupportedFormats.CODE_93,
   Html5QrcodeSupportedFormats.UPC_A,
   Html5QrcodeSupportedFormats.UPC_E,
-  Html5QrcodeSupportedFormats.UPC_EAN_EXTENSION,
-  Html5QrcodeSupportedFormats.ITF,
-  Html5QrcodeSupportedFormats.QR_CODE,
-  Html5QrcodeSupportedFormats.DATA_MATRIX,
-  Html5QrcodeSupportedFormats.PDF_417,
-  Html5QrcodeSupportedFormats.CODABAR
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.QR_CODE
 ].filter(Boolean);
 
+export const ALL_BARCODE_FORMATS = CORE_RETAIL_BARCODE_FORMATS;
+
 let _cachedNativeDetector = null;
+let _nativeDetectorPromise = null;
 
 /**
  * Checks whether the browser natively supports the hardware BarcodeDetector API.
@@ -34,24 +31,35 @@ export function isNativeBarcodeDetectorSupported() {
 }
 
 /**
- * Gets or instantiates a native BarcodeDetector.
+ * Safely gets or instantiates a native BarcodeDetector by checking supported formats first.
+ * Never throws TypeError on unsupported formats.
  */
-export function getNativeDetector() {
+export async function getNativeDetector() {
   if (!isNativeBarcodeDetectorSupported()) return null;
-  if (!_cachedNativeDetector) {
+  if (_cachedNativeDetector) return _cachedNativeDetector;
+  if (_nativeDetectorPromise) return _nativeDetectorPromise;
+
+  _nativeDetectorPromise = (async () => {
     try {
-      _cachedNativeDetector = new window.BarcodeDetector({
-        formats: [
-          'ean_13', 'ean_8', 'code_128', 'code_39', 'code_93', 
-          'upc_a', 'upc_e', 'qr_code', 'itf', 'codabar', 'data_matrix', 'pdf417'
-        ]
-      });
+      if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        const desired = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code', 'itf'];
+        const matched = desired.filter(f => supported.includes(f));
+        if (matched.length > 0) {
+          _cachedNativeDetector = new window.BarcodeDetector({ formats: matched });
+          return _cachedNativeDetector;
+        }
+      }
+      _cachedNativeDetector = new window.BarcodeDetector();
+      return _cachedNativeDetector;
     } catch (e) {
-      console.warn('Native BarcodeDetector instantiation failed:', e);
+      console.warn('Native BarcodeDetector init failed:', e);
       _cachedNativeDetector = null;
+      return null;
     }
-  }
-  return _cachedNativeDetector;
+  })();
+
+  return _nativeDetectorPromise;
 }
 
 /**
@@ -59,17 +67,54 @@ export function getNativeDetector() {
  * Returns decoded rawValue or null. Extremely fast (under 5ms).
  */
 export async function detectFromVideoFrame(videoOrCanvas) {
-  const detector = getNativeDetector();
-  if (!detector) return null;
   try {
+    const detector = await getNativeDetector();
+    if (!detector) return null;
     const results = await detector.detect(videoOrCanvas);
     if (results && results.length > 0 && results[0]?.rawValue) {
       return String(results[0].rawValue).trim();
     }
   } catch (e) {
-    // silently catch detector errors during video playback
+    // Silently catch frame decode issues during active playback
   }
   return null;
+}
+
+let _audioCtx = null;
+/**
+ * Synthesizes a crisp supermarket barcode scanner chime (works 100% offline, zero latency).
+ */
+export function playBeep(isError = false) {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!_audioCtx) _audioCtx = new AudioContext();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+
+    const osc = _audioCtx.createOscillator();
+    const gain = _audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(_audioCtx.destination);
+
+    if (isError) {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(240, _audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.3, _audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, _audioCtx.currentTime + 0.22);
+      osc.start();
+      osc.stop(_audioCtx.currentTime + 0.22);
+    } else {
+      // Pleasant supermarket scanner chime (1760 Hz / high A)
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1760, _audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.28, _audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, _audioCtx.currentTime + 0.12);
+      osc.start();
+      osc.stop(_audioCtx.currentTime + 0.12);
+    }
+  } catch (e) {
+    // Autoplay restrictions
+  }
 }
 
 /**

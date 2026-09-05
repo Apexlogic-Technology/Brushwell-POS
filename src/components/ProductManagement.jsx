@@ -37,7 +37,9 @@ export default function ProductManagement({
   onOpenBarcodeGen,
   isAdmin = false,
   onOpenStockReceive,
-  onOpenSettings
+  onOpenSettings,
+  initialBarcode = null,
+  onClearInitialBarcode
 }) {
   const safeProducts = Array.isArray(products) ? products.filter(Boolean) : [];
   const safeCategories = Array.isArray(categories) ? categories.filter(Boolean) : [];
@@ -202,6 +204,13 @@ export default function ProductManagement({
     setIsVisualRegisterOpen(false);
     openFormModal(existingProduct, barcode, initialData);
   };
+
+  useEffect(() => {
+    if (initialBarcode) {
+      openFormModal(null, initialBarcode);
+      if (onClearInitialBarcode) onClearInitialBarcode();
+    }
+  }, [initialBarcode]);
 
   const handleScanToAddSuccess = (code, matchedProduct) => {
     setIsScanModalOpen(false);

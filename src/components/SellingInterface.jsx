@@ -8,6 +8,7 @@ import {
 import { processCheckout, DEFAULT_TAX_TYPES } from '../services/supabaseService';
 import VoiceSellingModal from './VoiceSellingModal';
 import VisualSearchModal from './VisualSearchModal';
+import FullscreenCameraScanner from './FullscreenCameraScanner';
 
 export default function SellingInterface({ 
   products, 
@@ -17,8 +18,20 @@ export default function SellingInterface({
   settings, 
   onCheckoutSuccess,
   onOpenScanner,
-  onOpenSettings
+  onOpenSettings,
+  onQuickRegister
 }) {
+  const [sellViewMode, setSellViewMode] = useState(() => {
+    return localStorage.getItem('brushwell_sell_mode') || 'camera';
+  });
+
+  const handleSwitchSellMode = (mode) => {
+    setSellViewMode(mode);
+    try {
+      localStorage.setItem('brushwell_sell_mode', mode);
+    } catch (e) {}
+  };
+
   const [isVisualSearchOpen, setIsVisualSearchOpen] = useState(false);
   const [visualSearchMode, setVisualSearchMode] = useState('snap_cart');
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
@@ -403,20 +416,60 @@ export default function SellingInterface({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      
-      {/* Controls Bar */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          
-          {/* Price Tier Switcher */}
-          <div style={{
-            display: 'flex',
-            background: 'var(--bg-surface-elevated)',
-            padding: '3px',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-light)'
-          }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', height: '100%' }}>
+      {sellViewMode === 'camera' ? (
+        <FullscreenCameraScanner
+          products={products}
+          cart={cart}
+          priceMode={priceMode}
+          setPriceMode={setPriceMode}
+          onAddToCart={addToCart}
+          onOpenCart={() => setIsCartOpen(true)}
+          onCheckout={() => setIsCartOpen(true)}
+          onSwitchToCatalog={() => handleSwitchSellMode('catalog')}
+          onQuickRegister={onQuickRegister}
+          currencySymbol={currencySymbol}
+          isPaused={isCartOpen || isBorrowModalOpen || isVisualSearchOpen || isVoiceModalOpen}
+        />
+      ) : (
+        <>
+          {/* Controls Bar */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              
+              {/* Switch to Camera Scanner Button */}
+              <button
+                type="button"
+                onClick={() => handleSwitchSellMode('camera')}
+                style={{
+                  padding: '0.4rem 0.75rem',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'linear-gradient(135deg, var(--primary), var(--accent-purple))',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 6px var(--primary-glow)'
+                }}
+                title="Switch to Fullscreen Camera Scanner POS"
+              >
+                <Camera size={15} /> 📷 Fullscreen Scanner
+              </button>
+
+              {/* Price Tier Switcher */}
+              <div style={{
+                display: 'flex',
+                background: 'var(--bg-surface-elevated)',
+                padding: '3px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)'
+              }}>
             <button
               onClick={() => setPriceMode('retail')}
               style={{
@@ -803,6 +856,8 @@ export default function SellingInterface({
             Checkout <ArrowRight size={18} />
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Checkout Drawer Modal */}

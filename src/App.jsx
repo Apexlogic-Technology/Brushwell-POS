@@ -57,6 +57,12 @@ export default function App() {
   const [isOutboundLoansOpen, setIsOutboundLoansOpen] = useState(false);
   const [outboundLoansCount, setOutboundLoansCount] = useState(0);
   const [lastOrder, setLastOrder] = useState(null);
+  const [prefilledBarcode, setPrefilledBarcode] = useState(null);
+
+  const handleQuickRegister = (barcode) => {
+    setPrefilledBarcode(barcode);
+    setActiveTab('products');
+  };
 
   // Theme effect
   useEffect(() => {
@@ -418,6 +424,7 @@ export default function App() {
             onCheckoutSuccess={handleCheckoutSuccess}
             onOpenScanner={() => setIsScannerOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onQuickRegister={handleQuickRegister}
           />
         )}
         {activeTab === 'products' && (
@@ -429,6 +436,8 @@ export default function App() {
             isAdmin={isAdmin}
             onOpenStockReceive={() => setIsStockReceiveOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            initialBarcode={prefilledBarcode}
+            onClearInitialBarcode={() => setPrefilledBarcode(null)}
           />
         )}
         {activeTab === 'reports' && isAdmin && (

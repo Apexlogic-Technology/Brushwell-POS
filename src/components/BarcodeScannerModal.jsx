@@ -187,9 +187,14 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     });
     scannerRef.current = instance;
 
-    // 3. Scan configuration with full viewfinder coverage
+    // 3. Scan configuration with wide horizontal responsive qrbox for book barcodes
     const config = {
-      fps: 15,
+      fps: 22,
+      qrbox: (viewWidth, viewHeight) => {
+        const width = Math.min(Math.floor(viewWidth * 0.90), 650);
+        const height = Math.min(Math.floor(viewHeight * 0.54), 380);
+        return { width, height };
+      },
       disableFlip: false,
     };
 
@@ -210,10 +215,19 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
       }
     }
 
-    // Try environment facing mode
+    // Try environment facing mode with HD resolution for sharp barcode lines
     if (!started) {
       try {
-        await instance.start({ facingMode: 'environment' }, config, onSuccess, () => {});
+        await instance.start(
+          { 
+            facingMode: { ideal: 'environment' },
+            width: { min: 1280, ideal: 1920 },
+            height: { min: 720, ideal: 1080 }
+          }, 
+          config, 
+          onSuccess, 
+          () => {}
+        );
         started = true;
       } catch (err) {
         console.warn('Failed facingMode environment, trying user facingMode:', err);
