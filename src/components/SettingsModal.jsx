@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Bluetooth, Check, AlertCircle, RefreshCw, Database, Printer, Percent, Plus, Trash2, Eye, EyeOff, Smartphone, Copy } from 'lucide-react';
+import { X, Save, Bluetooth, Check, AlertCircle, RefreshCw, Database, Printer, Percent, Plus, Trash2, Eye, EyeOff, Smartphone, Copy, Sparkles, Camera } from 'lucide-react';
 import { getSettings, saveSettings, DEFAULT_TAX_TYPES, testSupabaseConnection, resetSupabaseClient } from '../services/supabaseService';
 import { connectBluetoothPrinter, disconnectBluetoothPrinter } from '../services/printerService';
+import { testGeminiApiKey } from '../services/visionService';
 
 export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
   const [form, setForm]               = useState(getSettings());
@@ -11,6 +12,9 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
   const [showKey, setShowKey]         = useState(false);
   const [showQR, setShowQR]           = useState(false);
   const [qrCopied, setQrCopied]       = useState(false);
+  const [showGeminiKey, setShowGeminiKey]         = useState(false);
+  const [geminiTestStatus, setGeminiTestStatus]   = useState('idle');
+  const [geminiTestMsg, setGeminiTestMsg]         = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -21,6 +25,8 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
       setTestMsg('');
       setShowQR(false);
       setQrCopied(false);
+      setGeminiTestStatus('idle');
+      setGeminiTestMsg('');
     }
   }, [isOpen]);
 
@@ -44,6 +50,19 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
     } else {
       setTestStatus('error');
       setTestMsg(result.error || 'Connection failed.');
+    }
+  };
+
+  const handleTestGemini = async () => {
+    setGeminiTestStatus('loading');
+    setGeminiTestMsg('');
+    const res = await testGeminiApiKey(form.gemini_api_key);
+    if (res.ok) {
+      setGeminiTestStatus('success');
+      setGeminiTestMsg('Connected to Google Gemini Vision successfully!');
+    } else {
+      setGeminiTestStatus('error');
+      setGeminiTestMsg(res.error || 'Connection failed.');
     }
   };
 
@@ -242,6 +261,72 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
                     </div>
                   );
                 })()}
+              </div>
+            )}
+          </section>
+
+          {/* AI Vision (Google Gemini) */}
+          <section>
+            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Sparkles size={14} color="var(--accent-purple)" /> AI Vision & Book Recognition
+            </div>
+
+            <div className="form-group" style={{ marginBottom: '0.6rem' }}>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Google Gemini API Key</span>
+                <a 
+                  href="https://aistudio.google.com/app/apikey" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  style={{ fontSize: '0.72rem', color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  Get Free Key ↗
+                </a>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showGeminiKey ? 'text' : 'password'}
+                  className="form-control"
+                  value={form.gemini_api_key || ''}
+                  onChange={e => setForm({ ...form, gemini_api_key: e.target.value })}
+                  placeholder="AIzaSy..."
+                  style={{ paddingRight: '2.5rem' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGeminiKey(v => !v)}
+                  style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                >
+                  {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem', lineHeight: 1.4 }}>
+                Powers instant photo recognition: <strong>Snap-to-Cart</strong>, <strong>Visual Price Check</strong>, and <strong>Front+Back Book Registration</strong>. 100% free with generous daily limits.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ width: '100%', justifyContent: 'center' }}
+              onClick={handleTestGemini}
+              disabled={geminiTestStatus === 'loading' || !form.gemini_api_key}
+            >
+              {geminiTestStatus === 'loading' && <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />}
+              {geminiTestStatus === 'success' && <Check size={16} color="var(--accent-emerald)" />}
+              {geminiTestStatus === 'error'   && <AlertCircle size={16} color="var(--accent-rose)" />}
+              {geminiTestStatus === 'idle'    && <Sparkles size={16} color="var(--accent-purple)" />}
+              {geminiTestStatus === 'loading' ? 'Verifying Key...' : geminiTestStatus === 'success' ? 'Connected & Verified!' : geminiTestStatus === 'error' ? 'Verification Failed' : 'Test AI Vision Key'}
+            </button>
+
+            {geminiTestMsg && (
+              <div style={{
+                marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: 'var(--radius-md)', fontSize: '0.78rem', lineHeight: 1.45, fontWeight: 600,
+                background: geminiTestStatus === 'success' ? 'var(--accent-emerald-light)' : 'var(--accent-rose-light)',
+                border: `1px solid ${geminiTestStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'}`,
+                color: geminiTestStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
+              }}>
+                {geminiTestMsg}
               </div>
             )}
           </section>

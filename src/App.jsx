@@ -400,6 +400,7 @@ export default function App() {
             settings={{ ...settings, cashier_name: session.name }}
             onCheckoutSuccess={handleCheckoutSuccess}
             onOpenScanner={() => setIsScannerOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         )}
         {activeTab === 'products' && (
@@ -410,6 +411,7 @@ export default function App() {
             onOpenBarcodeGen={openBarcodeGen}
             isAdmin={isAdmin}
             onOpenStockReceive={() => setIsStockReceiveOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         )}
         {activeTab === 'reports' && isAdmin && (

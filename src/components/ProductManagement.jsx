@@ -14,6 +14,7 @@ import {
   deleteAllProducts
 } from '../services/supabaseService';
 import BarcodeScannerModal from './BarcodeScannerModal';
+import VisualSearchModal from './VisualSearchModal';
 
 const DEFAULT_CATEGORIES = [
   { id: 'cat-gh-1',  name: 'Crèche & Nursery (KG 1 - 2)' },
@@ -35,7 +36,8 @@ export default function ProductManagement({
   onRefreshProducts, 
   onOpenBarcodeGen,
   isAdmin = false,
-  onOpenStockReceive
+  onOpenStockReceive,
+  onOpenSettings
 }) {
   const safeProducts = Array.isArray(products) ? products.filter(Boolean) : [];
   const safeCategories = Array.isArray(categories) ? categories.filter(Boolean) : [];
@@ -46,6 +48,7 @@ export default function ProductManagement({
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [isVisualRegisterOpen, setIsVisualRegisterOpen] = useState(false);
   const [scanMode, setScanMode] = useState('new'); // 'new' | 'form'
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -156,7 +159,7 @@ export default function ProductManagement({
     return filteredProducts.slice(0, visibleCount);
   }, [filteredProducts, visibleCount]);
 
-  const openFormModal = (product = null, initialBarcode = '') => {
+  const openFormModal = (product = null, initialBarcode = '', initialFields = null) => {
     setIsCustomCategory(false);
     setCustomCategoryInput('');
     const defaultCat = (allCategories && allCategories.length > 0) ? allCategories[0] : DEFAULT_CATEGORIES[0];
@@ -165,34 +168,39 @@ export default function ProductManagement({
       setEditingProduct(product);
       setFormData({
         id: product.id || '',
-        product_name: product.product_name || '',
-        publisher: product.publisher || '',
-        category_id: product.category_id || defaultCat.id,
-        category_name: product.category_name || defaultCat.name,
-        barcode: product.barcode || '',
+        product_name: initialFields?.product_name || product.product_name || '',
+        publisher: initialFields?.publisher || product.publisher || '',
+        category_id: initialFields?.category_id || product.category_id || defaultCat.id,
+        category_name: initialFields?.category_name || product.category_name || defaultCat.name,
+        barcode: initialBarcode || initialFields?.barcode || product.barcode || '',
         retail_price: product.retail_price || '',
         wholesale_price: product.wholesale_price || '',
         stock_quantity: product.stock_quantity !== undefined && product.stock_quantity !== null ? String(product.stock_quantity) : '0',
         expiry_date: product.expiry_date || '',
-        product_image: product.product_image || ''
+        product_image: initialFields?.product_image || product.product_image || ''
       });
     } else {
       setEditingProduct(null);
       setFormData({
         id: '',
-        product_name: '',
-        publisher: '',
-        category_id: defaultCat.id,
-        category_name: defaultCat.name,
-        barcode: initialBarcode || Math.floor(100000000000 + Math.random() * 900000000000).toString(),
-        retail_price: '',
-        wholesale_price: '',
-        stock_quantity: '10000',
+        product_name: initialFields?.product_name || '',
+        publisher: initialFields?.publisher || '',
+        category_id: initialFields?.category_id || defaultCat.id,
+        category_name: initialFields?.category_name || defaultCat.name,
+        barcode: initialBarcode || initialFields?.barcode || Math.floor(100000000000 + Math.random() * 900000000000).toString(),
+        retail_price: initialFields?.retail_price || '',
+        wholesale_price: initialFields?.wholesale_price || '',
+        stock_quantity: initialFields?.stock_quantity != null ? String(initialFields.stock_quantity) : '10000',
         expiry_date: '',
-        product_image: ''
+        product_image: initialFields?.product_image || ''
       });
     }
     setIsModalOpen(true);
+  };
+
+  const handleVisualRegisterSuccess = (existingProduct, barcode, initialData) => {
+    setIsVisualRegisterOpen(false);
+    openFormModal(existingProduct, barcode, initialData);
   };
 
   const handleScanToAddSuccess = (code, matchedProduct) => {
@@ -476,6 +484,26 @@ export default function ProductManagement({
             style={{ fontSize: '0.8rem', padding: '0.45rem 0.75rem', gap: '0.3rem' }}
           >
             <Plus size={17} /> Add Product
+          </button>
+
+          {/* AI Smart Book Register (Front & Back) */}
+          <button 
+            type="button"
+            className="btn-secondary" 
+            onClick={() => setIsVisualRegisterOpen(true)} 
+            style={{ 
+              fontSize: '0.8rem', 
+              padding: '0.45rem 0.75rem', 
+              gap: '0.35rem',
+              borderColor: 'var(--primary)',
+              color: 'var(--primary)',
+              fontWeight: 700,
+              background: 'var(--primary-light)'
+            }}
+            title="Scan Front & Back of book to auto-fill Title, Publisher, Category & Barcode"
+          >
+            <Camera size={16} /> 
+            <span>Photo Register</span>
           </button>
 
           {/* Tools & Bulk Operations Dropdown / Trigger */}
@@ -1157,6 +1185,19 @@ export default function ProductManagement({
           onClose={() => setIsScanModalOpen(false)}
           onScanSuccess={handleScanToAddSuccess}
           products={safeProducts}
+        />
+      )}
+
+      {/* Visual Search & Smart Book Register Modal */}
+      {isVisualRegisterOpen && (
+        <VisualSearchModal
+          isOpen={isVisualRegisterOpen}
+          onClose={() => setIsVisualRegisterOpen(false)}
+          initialMode="register"
+          products={safeProducts}
+          categories={allCategories}
+          onRegisterProduct={handleVisualRegisterSuccess}
+          onOpenSettings={onOpenSettings}
         />
       )}
 

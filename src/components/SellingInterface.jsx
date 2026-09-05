@@ -3,10 +3,11 @@ import {
   Search, ShoppingCart, Plus, Minus, Trash2, Tag, 
   CreditCard, DollarSign, Smartphone, Check, Sparkles, 
   AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon, Mic, BookOpen,
-  Handshake, Store, Info, HelpCircle
+  Handshake, Store, Info, HelpCircle, Camera
 } from 'lucide-react';
 import { processCheckout, DEFAULT_TAX_TYPES } from '../services/supabaseService';
 import VoiceSellingModal from './VoiceSellingModal';
+import VisualSearchModal from './VisualSearchModal';
 
 export default function SellingInterface({ 
   products, 
@@ -15,8 +16,11 @@ export default function SellingInterface({
   setCart, 
   settings, 
   onCheckoutSuccess,
-  onOpenScanner
+  onOpenScanner,
+  onOpenSettings
 }) {
+  const [isVisualSearchOpen, setIsVisualSearchOpen] = useState(false);
+  const [visualSearchMode, setVisualSearchMode] = useState('snap_cart');
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [isBorrowModalOpen, setIsBorrowModalOpen] = useState(false);
   const [borrowForm, setBorrowForm] = useState({
@@ -486,8 +490,31 @@ export default function SellingInterface({
               placeholder="Search title, author or ISBN..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '2.1rem', paddingRight: onOpenScanner ? '5rem' : '2.4rem', fontSize: '0.85rem' }}
+              style={{ paddingLeft: '2.1rem', paddingRight: onOpenScanner ? '6.8rem' : '4.6rem', fontSize: '0.85rem' }}
             />
+            {/* Visual Search / Snap to Cart button */}
+            <button
+              type="button"
+              onClick={() => { setVisualSearchMode('snap_cart'); setIsVisualSearchOpen(true); }}
+              title="AI Visual Search – Snap photo to add to cart or check prices"
+              style={{
+                position: 'absolute',
+                right: onOpenScanner ? '72px' : '38px',
+                background: 'linear-gradient(135deg, var(--primary), var(--accent-purple))',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.35rem 0.5rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'opacity 0.2s',
+                boxShadow: '0 2px 6px var(--primary-glow)'
+              }}
+            >
+              <Camera size={16} />
+            </button>
             {/* Voice mic button */}
             <button
               type="button"
@@ -495,7 +522,7 @@ export default function SellingInterface({
               title="Voice Selling – speak to add products"
               style={{
                 position: 'absolute',
-                right: onOpenScanner ? '40px' : '6px',
+                right: onOpenScanner ? '38px' : '6px',
                 background: 'var(--accent-purple)',
                 color: '#fff',
                 border: 'none',
@@ -1423,6 +1450,17 @@ export default function SellingInterface({
         onToggleTax={(val) => setApplyTax(val)}
         onClearCart={() => setCart([])}
         onCheckout={() => { setIsCartOpen(true); setIsVoiceModalOpen(false); }}
+      />
+
+      {/* Visual Search / Snap-to-Cart Modal */}
+      <VisualSearchModal
+        isOpen={isVisualSearchOpen}
+        onClose={() => setIsVisualSearchOpen(false)}
+        initialMode={visualSearchMode}
+        products={products}
+        categories={categories}
+        onAddToCart={(product) => addToCart(product)}
+        onOpenSettings={onOpenSettings}
       />
 
       {/* Spot Borrow Modal */}

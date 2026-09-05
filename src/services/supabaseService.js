@@ -37,7 +37,8 @@ export const getSettings = () => {
     printer_bluetooth_name: parsed.printer_bluetooth_name || '',
     tax_types: parsed.tax_types,
     tax_enabled_default: parsed.tax_enabled_default || false,
-    low_stock_threshold: parsed.low_stock_threshold !== undefined ? parseInt(parsed.low_stock_threshold, 10) : 5
+    low_stock_threshold: parsed.low_stock_threshold !== undefined ? parseInt(parsed.low_stock_threshold, 10) : 5,
+    gemini_api_key: parsed.gemini_api_key || ''
   };
 };
 
