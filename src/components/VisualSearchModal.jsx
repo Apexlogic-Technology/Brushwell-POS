@@ -405,7 +405,7 @@ export default function VisualSearchModal({
       retail_price: existing?.retail_price || '',
       wholesale_price: existing?.wholesale_price || '',
       stock_quantity: existing?.stock_quantity != null ? String(existing.stock_quantity) : '10000',
-      product_image: frontCoverData?.image || ''
+      product_image: existing?.product_image || ''
     };
 
     onClose();
