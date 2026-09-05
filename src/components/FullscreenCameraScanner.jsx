@@ -1,21 +1,19 @@
 // FullscreenCameraScanner.jsx — Brushwell POS
-// Entire-screen camera POS scanning interface with continuous auto-capture,
+// Entire-screen direct camera POS scanning interface with continuous auto-capture,
 // instant add-to-cart, holographic reticle, and direct-to-checkout live dock.
+// Uses direct native <video> stream with 0 black boxes or HTML5-QRCode canvas overlay bugs.
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
 import { 
   Camera, ShoppingCart, ArrowRight, Zap, ZapOff, 
   Volume2, VolumeX, RefreshCw, LayoutGrid, CheckCircle2,
   AlertCircle, Plus
 } from 'lucide-react';
 import { 
-  CORE_RETAIL_BARCODE_FORMATS, 
   detectFromVideoFrame, 
+  decodeBarcodeFromImageOrCanvas,
   playBeep 
 } from '../services/barcodeScannerService';
-
-const SCANNER_DOM_ID = 'brushwell-fullscreen-scanner';
 
 export default function FullscreenCameraScanner({
   products = [],
@@ -30,10 +28,8 @@ export default function FullscreenCameraScanner({
   currencySymbol = 'GH₵',
   isPaused = false
 }) {
-  const [cameras, setCameras] = useState([]);
-  const [selectedCameraId, setSelectedCameraId] = useState('');
   const [facingMode, setFacingMode] = useState('environment'); // 'environment' | 'user'
-  const [isCameraStarting, setIsCameraStarting] = useState(true);
+  const [isCameraReady, setIsCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -43,12 +39,14 @@ export default function FullscreenCameraScanner({
   const [scanFlash, setScanFlash] = useState(false);
   const [lastNotification, setLastNotification] = useState(null); // { type, message, product, code }
 
-  const scannerRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
   const isMountedRef = useRef(true);
   const lastScanCodeRef = useRef('');
   const lastScanTimeRef = useRef(0);
   const liveLoopRef = useRef(null);
   const notifTimerRef = useRef(null);
+  const contrastScanTickRef = useRef(0);
 
   // Calculate live cart total
   const cartItemCount = cart.reduce((sum, item) => sum + (item.quantity || 1), 0);
@@ -138,159 +136,104 @@ export default function FullscreenCameraScanner({
     }
   }, [isPaused, products, soundEnabled, onAddToCart, cart, priceMode, currencySymbol]);
 
-  // ─── Camera Management ─────────────────────────────────────────────────────
+  // ─── Camera Management (Direct MediaStream, Zero Black Canvas Overlays) ──────
 
-  const stopCamera = useCallback(async () => {
+  const stopCamera = useCallback(() => {
     if (liveLoopRef.current) {
       clearInterval(liveLoopRef.current);
       liveLoopRef.current = null;
     }
-    if (scannerRef.current) {
+    if (streamRef.current) {
       try {
-        if (scannerRef.current.isScanning) {
-          await scannerRef.current.stop();
-        }
-        await scannerRef.current.clear();
-      } catch (e) {
-        // Ignore stop errors on unmount
-      }
-      scannerRef.current = null;
+        streamRef.current.getTracks().forEach(t => t.stop());
+      } catch (e) {}
+      streamRef.current = null;
     }
-  }, []);
-
-  const startCamera = useCallback(async (cameraIdToUse = null) => {
-    await stopCamera();
-
-    await new Promise(r => setTimeout(r, 150));
-    if (!isMountedRef.current) return;
-
-    const el = document.getElementById(SCANNER_DOM_ID);
-    if (!el) return;
-
-    setIsCameraStarting(true);
-    setCameraError(null);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraReady(false);
     setTorchOn(false);
     setTorchAvailable(false);
+  }, []);
 
-    // Enumerate available cameras
-    let availableCams = cameras;
-    if (!availableCams || availableCams.length === 0) {
+  const startCamera = useCallback(async (overrideFacingMode = null) => {
+    stopCamera();
+    const mode = overrideFacingMode || facingMode;
+
+    try {
+      const constraints = {
+        video: {
+          facingMode: { ideal: mode },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 }
+        },
+        audio: false
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (!isMountedRef.current) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
+
+      streamRef.current = stream;
+
+      // Check torch capabilities on back camera
       try {
-        availableCams = await Html5Qrcode.getCameras();
-        if (isMountedRef.current && Array.isArray(availableCams) && availableCams.length > 0) {
-          setCameras(availableCams);
+        const track = stream.getVideoTracks()[0];
+        if (track && track.getCapabilities) {
+          const caps = track.getCapabilities();
+          if (caps && ('torch' in caps || caps.torch)) {
+            setTorchAvailable(true);
+          }
         }
-      } catch (e) {
-        console.warn('Camera enumeration error:', e);
-      }
-    }
+      } catch (e) {}
 
-    // Determine target camera
-    let target = cameraIdToUse || selectedCameraId;
-    if (!target && availableCams && availableCams.length > 0) {
-      const backCam = availableCams.find(c => 
-        /back|rear|environment|outward|isight|world/i.test(c.label)
-      );
-      target = backCam ? backCam.id : availableCams[0].id;
-      setSelectedCameraId(target);
-    }
-
-    // 1. Initialize Html5Qrcode instance
-    const instance = new Html5Qrcode(SCANNER_DOM_ID, {
-      formatsToSupport: CORE_RETAIL_BARCODE_FORMATS,
-      experimentalFeatures: {
-        useBarCodeDetectorIfSupported: true
-      },
-      verbose: false
-    });
-    scannerRef.current = instance;
-
-    // 2. Broad responsive scanning zone optimized for wide 1D book barcodes & QR codes
-    const config = {
-      fps: 22,
-      qrbox: (viewWidth, viewHeight) => {
-        const width = Math.min(Math.floor(viewWidth * 0.90), 650);
-        const height = Math.min(Math.floor(viewHeight * 0.54), 380);
-        return { width, height };
-      },
-      disableFlip: false
-    };
-
-    let started = false;
-
-    // Try camera by ID
-    if (target) {
-      try {
-        await instance.start(target, config, handleBarcodeDetected, () => {});
-        started = true;
-      } catch (err) {
-        console.warn('Starting camera by ID failed, falling back:', err);
-      }
-    }
-
-    // Try environment mode
-    if (!started) {
-      try {
-        await instance.start(
-          { 
-            facingMode: { ideal: facingMode },
-            width: { min: 1280, ideal: 1920 },
-            height: { min: 720, ideal: 1080 }
-          },
-          config,
-          handleBarcodeDetected,
-          () => {}
-        );
-        started = true;
-      } catch (err) {
-        console.warn('Starting camera by facingMode failed:', err);
-      }
-    }
-
-    // Try basic start
-    if (!started) {
-      try {
-        await instance.start({ facingMode: 'environment' }, config, handleBarcodeDetected, () => {});
-        started = true;
-      } catch (err) {
-        console.error('All camera start attempts failed:', err);
-      }
-    }
-
-    if (!isMountedRef.current) return;
-
-    if (started) {
-      setIsCameraStarting(false);
-      setCameraError(null);
-
-      // Check torch capabilities
-      try {
-        const caps = instance.getRunningTrackCapabilities();
-        if (caps && ('torch' in caps || caps.torch)) {
-          setTorchAvailable(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn('video.play() warning:', playErr);
         }
-      } catch (e) {
-        // Torch capability inspection
-      }
 
-      // Parallel high-frequency frame detector loop directly on <video> element
-      if (liveLoopRef.current) clearInterval(liveLoopRef.current);
-      liveLoopRef.current = setInterval(async () => {
-        if (!isMountedRef.current || !scannerRef.current || isPaused) return;
-        const videoEl = document.querySelector(`#${SCANNER_DOM_ID} video`);
-        if (videoEl && videoEl.readyState >= 2) {
-          const code = await detectFromVideoFrame(videoEl);
+        if (!isMountedRef.current) return;
+        setIsCameraReady(true);
+        setCameraError(null);
+
+        // Start high-speed live detection loop (65ms on live video frame)
+        if (liveLoopRef.current) clearInterval(liveLoopRef.current);
+        liveLoopRef.current = setInterval(async () => {
+          if (!isMountedRef.current || !videoRef.current || isPaused) return;
+          const video = videoRef.current;
+          if (video.readyState < 2) return;
+
+          // 1. Ultra-fast hardware BarcodeDetector on raw video frame
+          let code = await detectFromVideoFrame(video);
+
+          // 2. If missed and every ~260ms (4 ticks), run contrast-enhanced canvas fallback
+          // (essential for glossy laminated book covers like Don Series)
+          if (!code) {
+            contrastScanTickRef.current = (contrastScanTickRef.current + 1) % 4;
+            if (contrastScanTickRef.current === 0) {
+              code = await decodeBarcodeFromImageOrCanvas(video);
+            }
+          }
+
           if (code) {
             handleBarcodeDetected(code);
           }
-        }
-      }, 60);
-
-    } else {
-      setIsCameraStarting(false);
-      setCameraError('Unable to start live camera. Please check camera permissions in your browser.');
+        }, 65);
+      }
+    } catch (err) {
+      console.error('Camera stream error:', err);
+      if (isMountedRef.current) {
+        setIsCameraReady(false);
+        setCameraError(err.message || 'Camera permission denied or camera not found.');
+      }
     }
-  }, [cameras, selectedCameraId, facingMode, handleBarcodeDetected, isPaused, stopCamera]);
+  }, [facingMode, handleBarcodeDetected, isPaused, stopCamera]);
 
   // Lifecycle
   useEffect(() => {
@@ -304,31 +247,25 @@ export default function FullscreenCameraScanner({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Switch camera facing
+  // Switch camera facing (Environment vs User)
   const toggleCameraFacing = async () => {
     const nextFacing = facingMode === 'environment' ? 'user' : 'environment';
     setFacingMode(nextFacing);
-
-    if (cameras.length > 1) {
-      const currentIdx = cameras.findIndex(c => c.id === selectedCameraId);
-      const nextIdx = (currentIdx + 1) % cameras.length;
-      const nextId = cameras[nextIdx].id;
-      setSelectedCameraId(nextId);
-      await startCamera(nextId);
-    } else {
-      await startCamera(null);
-    }
+    await startCamera(nextFacing);
   };
 
   // Toggle Torch Flashlight
   const toggleTorch = async () => {
-    if (!scannerRef.current || !torchAvailable) return;
+    if (!streamRef.current || !torchAvailable) return;
     try {
-      const nextState = !torchOn;
-      await scannerRef.current.applyVideoConstraints({
-        advanced: [{ torch: nextState }]
-      });
-      setTorchOn(nextState);
+      const track = streamRef.current.getVideoTracks()[0];
+      if (track) {
+        const nextState = !torchOn;
+        await track.applyConstraints({
+          advanced: [{ torch: nextState }]
+        });
+        setTorchOn(nextState);
+      }
     } catch (err) {
       console.warn('Torch toggle failed:', err);
     }
@@ -338,8 +275,8 @@ export default function FullscreenCameraScanner({
     <div style={{
       position: 'relative',
       width: '100%',
-      height: 'calc(100vh - 105px)',
-      minHeight: '520px',
+      height: 'calc(100vh - 120px)',
+      minHeight: '480px',
       background: '#0a0d14',
       overflow: 'hidden',
       display: 'flex',
@@ -348,41 +285,29 @@ export default function FullscreenCameraScanner({
       boxShadow: '0 8px 32px rgba(0,0,0,0.35)'
     }}>
 
-      {/* ─── 1. Background Video Layer ────────────────────────────────────── */}
-      <div 
-        id={SCANNER_DOM_ID}
+      {/* ─── 1. Direct Live Video Feed (100% Full Viewport Coverage) ─────── */}
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        autoPlay
         style={{
           position: 'absolute',
           inset: 0,
           width: '100%',
           height: '100%',
-          zIndex: 1,
-          background: '#000',
-          overflow: 'hidden'
+          objectFit: 'cover',
+          display: isCameraReady ? 'block' : 'none',
+          zIndex: 1
         }}
       />
 
-      {/* CSS fix for full-coverage video presentation */}
+      {/* CSS animations for laser and scan feedback */}
       <style>{`
-        #${SCANNER_DOM_ID} {
-          width: 100% !important;
-          height: 100% !important;
-          border: none !important;
-        }
-        #${SCANNER_DOM_ID} video {
-          width: 100% !important;
-          height: 100% !important;
-          object-fit: cover !important;
-          display: block !important;
-        }
-        #${SCANNER_DOM_ID}__scan_region {
-          width: 100% !important;
-          height: 100% !important;
-        }
         @keyframes sweepLaser {
-          0% { top: 8%; opacity: 0.8; }
-          50% { top: 92%; opacity: 1; }
-          100% { top: 8%; opacity: 0.8; }
+          0% { top: 10%; opacity: 0.8; }
+          50% { top: 90%; opacity: 1; }
+          100% { top: 10%; opacity: 0.8; }
         }
         @keyframes pulseGlowRing {
           0%, 100% { transform: scale(1); opacity: 0.7; }
@@ -407,10 +332,10 @@ export default function FullscreenCameraScanner({
         {/* Left: View Switcher (Camera POS vs Catalog Grid) */}
         <div style={{
           display: 'flex',
-          background: 'rgba(255, 255, 255, 0.12)',
+          background: 'rgba(255, 255, 255, 0.14)',
           borderRadius: 'var(--radius-full)',
           padding: '3px',
-          border: '1px solid rgba(255, 255, 255, 0.15)'
+          border: '1px solid rgba(255, 255, 255, 0.2)'
         }}>
           <button
             type="button"
@@ -442,7 +367,7 @@ export default function FullscreenCameraScanner({
               padding: '0.35rem 0.85rem',
               borderRadius: 'var(--radius-full)',
               background: 'transparent',
-              color: 'rgba(255, 255, 255, 0.8)',
+              color: 'rgba(255, 255, 255, 0.85)',
               border: 'none',
               fontSize: '0.78rem',
               fontWeight: 600,
@@ -457,10 +382,10 @@ export default function FullscreenCameraScanner({
         {/* Center: Price Tier Switcher */}
         <div style={{
           display: 'flex',
-          background: 'rgba(255, 255, 255, 0.12)',
+          background: 'rgba(255, 255, 255, 0.14)',
           borderRadius: 'var(--radius-md)',
           padding: '2px',
-          border: '1px solid rgba(255, 255, 255, 0.15)'
+          border: '1px solid rgba(255, 255, 255, 0.2)'
         }}>
           <button
             type="button"
@@ -473,7 +398,7 @@ export default function FullscreenCameraScanner({
               border: 'none',
               cursor: 'pointer',
               background: priceMode === 'retail' ? 'var(--primary)' : 'transparent',
-              color: priceMode === 'retail' ? '#fff' : 'rgba(255, 255, 255, 0.7)'
+              color: priceMode === 'retail' ? '#fff' : 'rgba(255, 255, 255, 0.75)'
             }}
           >
             Retail
@@ -489,7 +414,7 @@ export default function FullscreenCameraScanner({
               border: 'none',
               cursor: 'pointer',
               background: priceMode === 'wholesale' ? 'var(--accent-purple)' : 'transparent',
-              color: priceMode === 'wholesale' ? '#fff' : 'rgba(255, 255, 255, 0.7)'
+              color: priceMode === 'wholesale' ? '#fff' : 'rgba(255, 255, 255, 0.75)'
             }}
           >
             Wholesale
@@ -504,9 +429,9 @@ export default function FullscreenCameraScanner({
               onClick={toggleTorch}
               title={torchOn ? 'Turn Flash Off' : 'Turn Flash On for Low Light'}
               style={{
-                background: torchOn ? 'var(--accent-amber)' : 'rgba(255,255,255,0.14)',
+                background: torchOn ? 'var(--accent-amber)' : 'rgba(255,255,255,0.18)',
                 color: torchOn ? '#000' : '#fff',
-                border: '1px solid rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.25)',
                 borderRadius: 'var(--radius-full)',
                 width: '34px',
                 height: '34px',
@@ -523,11 +448,11 @@ export default function FullscreenCameraScanner({
           <button
             type="button"
             onClick={toggleCameraFacing}
-            title="Switch Camera (Back/Front/USB)"
+            title="Switch Camera (Back/Front)"
             style={{
-              background: 'rgba(255,255,255,0.14)',
+              background: 'rgba(255,255,255,0.18)',
               color: '#fff',
-              border: '1px solid rgba(255,255,255,0.2)',
+              border: '1px solid rgba(255,255,255,0.25)',
               borderRadius: 'var(--radius-full)',
               width: '34px',
               height: '34px',
@@ -545,9 +470,9 @@ export default function FullscreenCameraScanner({
             onClick={() => setSoundEnabled(!soundEnabled)}
             title={soundEnabled ? 'Mute Beep Sound' : 'Enable Beep Sound'}
             style={{
-              background: 'rgba(255,255,255,0.14)',
+              background: 'rgba(255,255,255,0.18)',
               color: soundEnabled ? 'var(--accent-emerald)' : 'rgba(255,255,255,0.6)',
-              border: '1px solid rgba(255,255,255,0.2)',
+              border: '1px solid rgba(255,255,255,0.25)',
               borderRadius: 'var(--radius-full)',
               width: '34px',
               height: '34px',
@@ -580,16 +505,17 @@ export default function FullscreenCameraScanner({
         <div style={{
           position: 'relative',
           width: 'min(88%, 560px)',
-          height: 'min(48vh, 260px)',
+          height: 'min(44vh, 250px)',
           border: scanFlash 
             ? '3px solid var(--accent-emerald)' 
-            : '2px solid rgba(255, 255, 255, 0.25)',
+            : '2px solid rgba(255, 255, 255, 0.35)',
           borderRadius: '24px',
           boxShadow: scanFlash 
-            ? '0 0 45px rgba(16, 185, 129, 0.8), inset 0 0 25px rgba(16, 185, 129, 0.5)' 
-            : '0 0 20px rgba(0, 0, 0, 0.6), inset 0 0 15px rgba(0, 0, 0, 0.4)',
+            ? '0 0 45px rgba(16, 185, 129, 0.85), inset 0 0 25px rgba(16, 185, 129, 0.5)' 
+            : '0 0 20px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(0, 0, 0, 0.3)',
           transition: 'border 0.15s, box-shadow 0.15s',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          background: 'transparent'
         }}>
 
           {/* Corner Brackets */}
@@ -626,9 +552,9 @@ export default function FullscreenCameraScanner({
         {/* Instruction Badge */}
         <div style={{
           marginTop: '0.85rem',
-          background: 'rgba(10, 13, 20, 0.75)',
+          background: 'rgba(10, 13, 20, 0.78)',
           backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.18)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
           borderRadius: 'var(--radius-full)',
           padding: '0.4rem 1.1rem',
           color: '#fff',
@@ -882,8 +808,8 @@ export default function FullscreenCameraScanner({
         </div>
       )}
 
-      {/* Camera Loading Spinner */}
-      {isCameraStarting && !cameraError && (
+      {/* Camera Initializing Overlay */}
+      {!isCameraReady && !cameraError && (
         <div style={{
           position: 'absolute',
           inset: 0,
@@ -897,7 +823,7 @@ export default function FullscreenCameraScanner({
         }}>
           <RefreshCw className="animate-spin" size={32} color="var(--primary)" />
           <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', fontWeight: 600 }}>
-            Initializing scanner camera...
+            Starting live scanner camera...
           </div>
         </div>
       )}

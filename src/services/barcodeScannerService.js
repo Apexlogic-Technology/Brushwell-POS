@@ -208,7 +208,7 @@ export async function decodeBarcodeFromImageOrCanvas(sourceImageOrFile) {
     }
   }
 
-  const detector = getNativeDetector();
+  const detector = await getNativeDetector();
 
   // Pass 1: Native BarcodeDetector on original canvas
   if (detector && canvas) {

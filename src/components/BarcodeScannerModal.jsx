@@ -332,11 +332,6 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     }
   };
 
-  // Decode a canvas or image with multi-pass decoding
-  const decodeBarcodeFromImageOrCanvas = async (sourceCanvasOrFile) => {
-    return await decodeBarcodeFromImageOrCanvas(sourceCanvasOrFile);
-  };
-
   // Feature: Take a Snapshot from the active live camera view
   const handleSnapLivePicture = async () => {
     if (isProcessingPicture) return;
