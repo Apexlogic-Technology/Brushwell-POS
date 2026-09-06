@@ -162,11 +162,13 @@ export default function FullscreenCameraScanner({
     const mode = overrideFacingMode || facingMode;
 
     try {
+      // Use ideal constraints but allow fallback to lower res for faster autofocus on mobile
       const constraints = {
         video: {
           facingMode: { ideal: mode },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 }
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+          focusMode: 'continuous'  // Request continuous autofocus (Android Chrome supports this)
         },
         audio: false
       };
@@ -202,32 +204,30 @@ export default function FullscreenCameraScanner({
         setIsCameraReady(true);
         setCameraError(null);
 
-        // Start high-speed live detection loop
-        // - Primary: Native BarcodeDetector on raw video frame (~5ms, hardware-accelerated)
-        // - Fallback: decodeLiveVideoFrameFast — singleton ZXing on a small 480×240 crop
-        //   (no new Html5Qrcode(), no full-frame blobs, no phone freeze)
+        // Start live detection loop — dual engine:
+        // PRIMARY:  Native BarcodeDetector (~5ms, hardware GPU, Android Chrome)
+        // FALLBACK: ZXing @zxing/library BrowserMultiFormatReader — works on ALL browsers,
+        //           supports EAN-13/ISBN on any phone regardless of Google Play Services.
+        //           Runs every 200ms on a 640x320 center crop — fast and mobile-friendly.
         if (liveLoopRef.current) clearInterval(liveLoopRef.current);
         liveLoopRef.current = setInterval(async () => {
           if (!isMountedRef.current || !videoRef.current || isPaused) return;
           const video = videoRef.current;
-          if (video.readyState < 2) return;
+          if (video.readyState < 2 || video.paused) return;
 
-          // 1. Ultra-fast hardware BarcodeDetector on raw video frame (~5ms)
+          // 1. Hardware BarcodeDetector (instant when supported)
           let code = await detectFromVideoFrame(video);
 
-          // 2. Fallback: fast in-memory center-crop ZXing scan every 3 ticks (~300ms)
-          //    This is lightweight (480×240, persistent singleton) and won't freeze the phone.
+          // 2. ZXing fallback every 2nd tick (~200ms) — reliable EAN-13 on all browsers
           if (!code) {
-            contrastScanTickRef.current = (contrastScanTickRef.current + 1) % 3;
+            contrastScanTickRef.current = (contrastScanTickRef.current + 1) % 2;
             if (contrastScanTickRef.current === 0) {
               code = await decodeLiveVideoFrameFast(video);
             }
           }
 
-          if (code) {
-            handleBarcodeDetected(code);
-          }
-        }, 100); // 100ms = 10 fps — plenty fast for barcode scanning, easy on mobile CPU
+          if (code) handleBarcodeDetected(code);
+        }, 100); // 10fps — smooth enough, easy on mobile CPU
       }
     } catch (err) {
       console.error('Camera stream error:', err);
@@ -555,28 +555,59 @@ export default function FullscreenCameraScanner({
         {/* Instruction Badge */}
         <div style={{
           marginTop: '0.85rem',
-          background: 'rgba(10, 13, 20, 0.78)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          borderRadius: 'var(--radius-full)',
-          padding: '0.4rem 1.1rem',
-          color: '#fff',
-          fontSize: '0.8rem',
-          fontWeight: 600,
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          gap: '0.45rem',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.4)'
+          gap: '0.5rem'
         }}>
-          <span style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: 'var(--accent-emerald)',
-            display: 'inline-block',
-            boxShadow: '0 0 8px var(--accent-emerald)'
-          }} />
-          Point camera at book barcode (ISBN) or QR code
+
+          {/* Camera scan hint */}
+          <div style={{
+            background: 'rgba(10, 13, 20, 0.78)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 'var(--radius-full)',
+            padding: '0.4rem 1.1rem',
+            color: '#fff',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            boxShadow: '0 4px 15px rgba(0,0,0,0.4)'
+          }}>
+            <span style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: 'var(--accent-emerald)',
+              display: 'inline-block',
+              boxShadow: '0 0 8px var(--accent-emerald)',
+              animation: 'pulseGlowRing 1.5s ease-in-out infinite'
+            }} />
+            Point camera at book barcode (ISBN) or QR code
+          </div>
+
+          {/* Bluetooth scanner hint */}
+          <div style={{
+            background: 'rgba(59, 130, 246, 0.18)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(59, 130, 246, 0.4)',
+            borderRadius: 'var(--radius-full)',
+            padding: '0.3rem 0.95rem',
+            color: 'rgba(147, 197, 253, 1)',
+            fontSize: '0.73rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+          }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5" />
+            </svg>
+            Bluetooth scanner also works — pair &amp; scan directly
+          </div>
+
         </div>
 
       </div>
@@ -826,7 +857,10 @@ export default function FullscreenCameraScanner({
         }}>
           <RefreshCw className="animate-spin" size={32} color="var(--primary)" />
           <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', fontWeight: 600 }}>
-            Starting live scanner camera...
+            Starting scanner — ZXing + BarcodeDetector engines loading...
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem' }}>
+            Or pair a Bluetooth barcode scanner and scan directly
           </div>
         </div>
       )}
