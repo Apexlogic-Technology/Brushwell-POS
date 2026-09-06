@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { 
   detectFromVideoFrame, 
-  decodeBarcodeFromImageOrCanvas,
+  decodeLiveVideoFrameFast,
   playBeep 
 } from '../services/barcodeScannerService';
 
@@ -202,29 +202,32 @@ export default function FullscreenCameraScanner({
         setIsCameraReady(true);
         setCameraError(null);
 
-        // Start high-speed live detection loop (65ms on live video frame)
+        // Start high-speed live detection loop
+        // - Primary: Native BarcodeDetector on raw video frame (~5ms, hardware-accelerated)
+        // - Fallback: decodeLiveVideoFrameFast — singleton ZXing on a small 480×240 crop
+        //   (no new Html5Qrcode(), no full-frame blobs, no phone freeze)
         if (liveLoopRef.current) clearInterval(liveLoopRef.current);
         liveLoopRef.current = setInterval(async () => {
           if (!isMountedRef.current || !videoRef.current || isPaused) return;
           const video = videoRef.current;
           if (video.readyState < 2) return;
 
-          // 1. Ultra-fast hardware BarcodeDetector on raw video frame
+          // 1. Ultra-fast hardware BarcodeDetector on raw video frame (~5ms)
           let code = await detectFromVideoFrame(video);
 
-          // 2. If missed and every ~260ms (4 ticks), run contrast-enhanced canvas fallback
-          // (essential for glossy laminated book covers like Don Series)
+          // 2. Fallback: fast in-memory center-crop ZXing scan every 3 ticks (~300ms)
+          //    This is lightweight (480×240, persistent singleton) and won't freeze the phone.
           if (!code) {
-            contrastScanTickRef.current = (contrastScanTickRef.current + 1) % 4;
+            contrastScanTickRef.current = (contrastScanTickRef.current + 1) % 3;
             if (contrastScanTickRef.current === 0) {
-              code = await decodeBarcodeFromImageOrCanvas(video);
+              code = await decodeLiveVideoFrameFast(video);
             }
           }
 
           if (code) {
             handleBarcodeDetected(code);
           }
-        }, 65);
+        }, 100); // 100ms = 10 fps — plenty fast for barcode scanning, easy on mobile CPU
       }
     } catch (err) {
       console.error('Camera stream error:', err);
