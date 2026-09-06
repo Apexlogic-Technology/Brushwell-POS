@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Camera, ShoppingCart, ArrowRight, Zap, ZapOff, 
   Volume2, VolumeX, RefreshCw, LayoutGrid, CheckCircle2,
-  AlertCircle, Plus
+  AlertCircle, Plus, PauseCircle, Users
 } from 'lucide-react';
 import { 
   detectFromVideoFrame, 
@@ -26,7 +26,10 @@ export default function FullscreenCameraScanner({
   onSwitchToCatalog,
   onQuickRegister,
   currencySymbol = 'GH₵',
-  isPaused = false
+  isPaused = false,
+  heldOrders = [],
+  onOpenHeldOrders,
+  onHoldCurrentCart
 }) {
   const [facingMode, setFacingMode] = useState('environment'); // 'environment' | 'user'
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -424,6 +427,32 @@ export default function FullscreenCameraScanner({
           </button>
         </div>
 
+        {/* Parked Orders Indicator in Top Bar */}
+        {onOpenHeldOrders && heldOrders.length > 0 && (
+          <button
+            type="button"
+            onClick={onOpenHeldOrders}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              padding: '0.32rem 0.75rem',
+              borderRadius: 'var(--radius-md)',
+              background: 'linear-gradient(135deg, hsl(38, 92%, 50%), hsl(28, 90%, 45%))',
+              border: 'none',
+              color: '#fff',
+              fontSize: '0.74rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              boxShadow: '0 2px 10px rgba(245, 158, 11, 0.45)'
+            }}
+            title="Parked customer orders waiting"
+          >
+            <PauseCircle size={14} />
+            <span>{heldOrders.length} Held</span>
+          </button>
+        )}
+
         {/* Right: Camera Tools (Torch, Camera Switch, Audio) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           {torchAvailable && (
@@ -739,6 +768,55 @@ export default function FullscreenCameraScanner({
         {/* Right: View Cart & Direct Checkout Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: '1 1 auto', justifyContent: 'flex-end' }}>
           
+          {/* Hold Order Button (parks current cart to serve another customer) */}
+          {cart.length > 0 && onHoldCurrentCart && (
+            <button
+              type="button"
+              onClick={onHoldCurrentCart}
+              style={{
+                background: 'rgba(245, 158, 11, 0.2)',
+                color: '#fbbf24',
+                border: '1px solid rgba(245, 158, 11, 0.45)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.65rem 0.85rem',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                transition: 'background 0.2s'
+              }}
+              title="Hold this order to serve another customer"
+            >
+              <PauseCircle size={16} /> Hold
+            </button>
+          )}
+
+          {/* Parked Orders Drawer Trigger */}
+          {heldOrders.length > 0 && onOpenHeldOrders && (
+            <button
+              type="button"
+              onClick={onOpenHeldOrders}
+              style={{
+                background: 'rgba(255, 255, 255, 0.12)',
+                color: '#fff',
+                border: '1px solid rgba(255, 255, 255, 0.22)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.65rem 0.85rem',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem'
+              }}
+              title="View all held customer orders"
+            >
+              <Users size={16} color="#fbbf24" /> Parked ({heldOrders.length})
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onOpenCart}

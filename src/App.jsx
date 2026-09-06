@@ -15,6 +15,7 @@ import StockReceivingModal from './components/StockReceivingModal';
 import OrderHistoryModal from './components/OrderHistoryModal';
 import RefundModal from './components/RefundModal';
 import OutboundLoansModal from './components/OutboundLoansModal';
+import HeldOrdersDrawer from './components/HeldOrdersDrawer';
 
 import { fetchProducts, getSettings, fetchOutboundLoans } from './services/supabaseService';
 import { initHardwareBarcodeListener } from './services/barcodeScannerService';
@@ -45,7 +46,6 @@ export default function App() {
   const [cart, setCart] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Modal states
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isBarcodeGenOpen, setIsBarcodeGenOpen] = useState(false);
   const [barcodeGenProduct, setBarcodeGenProduct] = useState(null);
@@ -55,9 +55,68 @@ export default function App() {
   const [isOrderHistoryOpen, setIsOrderHistoryOpen] = useState(false);
   const [isRefundOpen, setIsRefundOpen] = useState(false);
   const [isOutboundLoansOpen, setIsOutboundLoansOpen] = useState(false);
+  const [isHeldOrdersOpen, setIsHeldOrdersOpen] = useState(false);
   const [outboundLoansCount, setOutboundLoansCount] = useState(0);
   const [lastOrder, setLastOrder] = useState(null);
   const [prefilledBarcode, setPrefilledBarcode] = useState(null);
+
+  // ─── Held Orders (multi-customer support) ─────────────────────────────────
+  // Each held order: { id, label, cart, priceMode, createdAt }
+  const [heldOrders, setHeldOrders] = useState(() => {
+    try {
+      const saved = localStorage.getItem('brushwell_held_orders');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  // Persist held orders to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('brushwell_held_orders', JSON.stringify(heldOrders));
+    } catch { }
+  }, [heldOrders]);
+
+  // Park the current cart — saves it and clears active cart
+  const holdCurrentCart = (currentCart, currentPriceMode = 'retail') => {
+    if (!currentCart || currentCart.length === 0) return;
+    const orderNum = heldOrders.length + 1;
+    const newHeld = {
+      id: `held_${Date.now()}`,
+      label: `Customer ${orderNum}`,
+      cart: currentCart,
+      priceMode: currentPriceMode,
+      createdAt: new Date().toISOString()
+    };
+    setHeldOrders(prev => [...prev, newHeld]);
+    setCart([]);
+  };
+
+  // Restore a held order — replaces active cart with held one
+  const resumeHeldOrder = (heldId) => {
+    const order = heldOrders.find(o => o.id === heldId);
+    if (!order) return;
+    // If active cart has items, hold it first
+    if (cart.length > 0) {
+      const orderNum = heldOrders.filter(o => o.id !== heldId).length + 1;
+      const autoHeld = {
+        id: `held_${Date.now()}`,
+        label: `Customer ${orderNum}`,
+        cart,
+        priceMode: 'retail',
+        createdAt: new Date().toISOString()
+      };
+      setHeldOrders(prev => [...prev.filter(o => o.id !== heldId), autoHeld]);
+    } else {
+      setHeldOrders(prev => prev.filter(o => o.id !== heldId));
+    }
+    setCart(order.cart);
+  };
+
+  // Discard a held order
+  const deleteHeldOrder = (heldId) => {
+    setHeldOrders(prev => prev.filter(o => o.id !== heldId));
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleQuickRegister = (barcode) => {
     setPrefilledBarcode(barcode);
@@ -425,6 +484,9 @@ export default function App() {
             onOpenScanner={() => setIsScannerOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onQuickRegister={handleQuickRegister}
+            heldOrders={heldOrders}
+            onHoldCurrentCart={holdCurrentCart}
+            onOpenHeldOrders={() => setIsHeldOrdersOpen(true)}
           />
         )}
         {activeTab === 'products' && (
@@ -525,6 +587,16 @@ export default function App() {
         products={products}
         settings={settings}
         session={session}
+      />
+      <HeldOrdersDrawer
+        isOpen={isHeldOrdersOpen}
+        onClose={() => setIsHeldOrdersOpen(false)}
+        heldOrders={heldOrders}
+        onResume={resumeHeldOrder}
+        onDelete={deleteHeldOrder}
+        onHoldCurrent={(priceMode) => holdCurrentCart(cart, priceMode)}
+        hasActiveCart={cart.length > 0}
+        currencySymbol={settings.currency_symbol || 'GH₵'}
       />
     </div>
   );

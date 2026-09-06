@@ -3,7 +3,7 @@ import {
   Search, ShoppingCart, Plus, Minus, Trash2, Tag, 
   CreditCard, DollarSign, Smartphone, Check, Sparkles, 
   AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon, Mic, BookOpen,
-  Handshake, Store, Info, HelpCircle, Camera
+  Handshake, Store, Info, HelpCircle, Camera, PauseCircle, Users
 } from 'lucide-react';
 import { processCheckout, DEFAULT_TAX_TYPES } from '../services/supabaseService';
 import VoiceSellingModal from './VoiceSellingModal';
@@ -19,7 +19,10 @@ export default function SellingInterface({
   onCheckoutSuccess,
   onOpenScanner,
   onOpenSettings,
-  onQuickRegister
+  onQuickRegister,
+  heldOrders = [],
+  onHoldCurrentCart,
+  onOpenHeldOrders
 }) {
   const [sellViewMode, setSellViewMode] = useState(() => {
     return localStorage.getItem('brushwell_sell_mode') || 'camera';
@@ -430,6 +433,9 @@ export default function SellingInterface({
           onQuickRegister={onQuickRegister}
           currencySymbol={currencySymbol}
           isPaused={isCartOpen || isBorrowModalOpen || isVisualSearchOpen || isVoiceModalOpen}
+          heldOrders={heldOrders}
+          onOpenHeldOrders={onOpenHeldOrders}
+          onHoldCurrentCart={() => onHoldCurrentCart && onHoldCurrentCart(cart, priceMode)}
         />
       ) : (
         <>
@@ -495,6 +501,48 @@ export default function SellingInterface({
               Wholesale
             </button>
           </div>
+
+          {/* Parked Orders Trigger Button */}
+          {onOpenHeldOrders && (
+            <button
+              type="button"
+              onClick={onOpenHeldOrders}
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                borderRadius: 'var(--radius-sm)',
+                background: heldOrders.length > 0
+                  ? 'linear-gradient(135deg, hsl(38, 92%, 50%), hsl(28, 90%, 45%))'
+                  : 'var(--bg-surface-elevated)',
+                color: heldOrders.length > 0 ? '#fff' : 'var(--text-main)',
+                border: heldOrders.length > 0 ? 'none' : '1px solid var(--border-light)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                boxShadow: heldOrders.length > 0 ? '0 2px 8px rgba(245, 158, 11, 0.35)' : 'none'
+              }}
+              title="Parked customer orders — serve multiple customers at once"
+            >
+              <PauseCircle size={15} />
+              <span>Parked</span>
+              {heldOrders.length > 0 && (
+                <span style={{
+                  background: heldOrders.length > 0 ? '#fff' : 'var(--primary)',
+                  color: heldOrders.length > 0 ? '#b45309' : '#fff',
+                  borderRadius: '999px',
+                  padding: '0.05rem 0.4rem',
+                  fontSize: '0.68rem',
+                  fontWeight: 800
+                }}>
+                  {heldOrders.length}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Spot Borrow Button */}
           <button
@@ -852,8 +900,35 @@ export default function SellingInterface({
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, fontSize: '0.9rem' }}>
-            Checkout <ArrowRight size={18} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            {onHoldCurrentCart && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onHoldCurrentCart(cart, priceMode);
+                }}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  color: '#fff',
+                  border: '1px solid rgba(255, 255, 255, 0.35)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.4rem 0.75rem',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem'
+                }}
+                title="Hold this customer's order and start a new one"
+              >
+                <PauseCircle size={15} /> Hold Order
+              </button>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, fontSize: '0.9rem' }}>
+              Checkout <ArrowRight size={18} />
+            </div>
           </div>
         </div>
       )}
@@ -881,13 +956,40 @@ export default function SellingInterface({
                   <ShoppingCart size={15} color="var(--primary)" />
                   Selected Products ({cart.length} item{cart.length > 1 ? 's' : ''})
                 </div>
-                <button 
-                  type="button" 
-                  style={{ fontSize: '0.72rem', color: 'var(--accent-rose)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}
-                  onClick={() => setCart([])}
-                >
-                  Clear Cart
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  {onHoldCurrentCart && cart.length > 0 && (
+                    <button 
+                      type="button" 
+                      style={{ 
+                        fontSize: '0.74rem', 
+                        color: 'var(--accent-amber)', 
+                        fontWeight: 700, 
+                        background: 'rgba(245, 158, 11, 0.12)', 
+                        border: '1px solid rgba(245, 158, 11, 0.35)', 
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '0.25rem 0.6rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem'
+                      }}
+                      onClick={() => {
+                        onHoldCurrentCart(cart, priceMode);
+                        setIsCartOpen(false);
+                      }}
+                      title="Hold this customer's order and serve another customer"
+                    >
+                      <PauseCircle size={13} /> Hold Order
+                    </button>
+                  )}
+                  <button 
+                    type="button" 
+                    style={{ fontSize: '0.72rem', color: 'var(--accent-rose)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}
+                    onClick={() => setCart([])}
+                  >
+                    Clear Cart
+                  </button>
+                </div>
               </div>
 
               {/* Item List — No artificial maxHeight cap so all items render clearly */}
