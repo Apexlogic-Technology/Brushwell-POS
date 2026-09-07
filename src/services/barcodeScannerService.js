@@ -220,17 +220,26 @@ export async function detectFromVideoFrame(videoOrCanvas) {
  * This is the critical fix for iPhone PWA scanning performance.
  */
 export async function decodeLiveVideoFrameFast(video) {
-  if (!video || video.readyState < 2 || !video.videoWidth) return null;
+  if (!video || video.readyState < 2 || !video.videoWidth || video.paused) return null;
 
   const { canvas, ctx } = getCropCanvas();
 
-  // Crop center of frame — skip the outer 10% horizontally, 25% vertically
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  const srcX = Math.floor(vw * 0.10);
-  const srcY = Math.floor(vh * 0.25);
-  const srcW = Math.floor(vw * 0.80);
-  const srcH = Math.floor(vh * 0.50);
+  // Always clear previous frame pixels to prevent any ghosting or sticky barcodes
+  ctx.clearRect(0, 0, CROP_W, CROP_H);
+
+  // Responsive crop geometry: handles portrait sensors (vw < vh) and landscape sensors (vw >= vh)
+  let srcX, srcY, srcW, srcH;
+  if (vw < vh) {
+    srcX = Math.floor(vw * 0.05);
+    srcY = Math.floor(vh * 0.25);
+    srcW = Math.floor(vw * 0.90);
+    srcH = Math.floor(vh * 0.50);
+  } else {
+    srcX = Math.floor(vw * 0.10);
+    srcY = Math.floor(vh * 0.20);
+    srcW = Math.floor(vw * 0.80);
+    srcH = Math.floor(vh * 0.60);
+  }
 
   ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, CROP_W, CROP_H);
 
@@ -405,6 +414,27 @@ export function rotateCanvas90(sourceCanvas) {
 // ─── Audio Feedback ────────────────────────────────────────────────────────────
 
 let _audioCtx = null;
+
+// Pre-unlock Web Audio on first user tap/touch for seamless playback on iOS & Android
+if (typeof window !== 'undefined') {
+  const unlockAudio = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        if (!_audioCtx) _audioCtx = new AudioCtx();
+        if (_audioCtx.state === 'suspended') {
+          _audioCtx.resume();
+        }
+      }
+    } catch (e) {}
+    window.removeEventListener('touchstart', unlockAudio, true);
+    window.removeEventListener('touchend', unlockAudio, true);
+    window.removeEventListener('click', unlockAudio, true);
+  };
+  window.addEventListener('touchstart', unlockAudio, true);
+  window.addEventListener('touchend', unlockAudio, true);
+  window.addEventListener('click', unlockAudio, true);
+}
 
 /**
  * Supermarket-style beep using Web Audio API — 100% offline, zero latency.

@@ -76,12 +76,12 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScanSuccess, pr
     if (!trimmed) return;
 
     const now = Date.now();
-    // Allow immediate scanning of different codes (300ms cooldown)
-    // Debounce duplicate identical code within 1.5s
-    if (trimmed === lastScannedCodeRef.current && now - lastScanTimeRef.current < 1500) {
+    // Debounce duplicate identical code within 1.0s
+    if (trimmed === lastScannedCodeRef.current && now - lastScanTimeRef.current < 1000) {
       return;
     }
-    if (now - lastScanTimeRef.current < 300) {
+    // Allow immediate scanning of different codes (80ms cooldown)
+    if (now - lastScanTimeRef.current < 80) {
       return;
     }
 

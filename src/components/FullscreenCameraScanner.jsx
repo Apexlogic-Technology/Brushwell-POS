@@ -76,12 +76,12 @@ export default function FullscreenCameraScanner({
     if (!trimmed || trimmed.length < 3) return;
 
     const now = Date.now();
-    // Prevent duplicate scans within 1.2s for identical code
-    if (trimmed === lastScanCodeRef.current && now - lastScanTimeRef.current < 1200) {
+    // Same barcode cooldown: 900ms (prevents runaway scans of the same book in frame)
+    if (trimmed === lastScanCodeRef.current && (now - lastScanTimeRef.current < 900)) {
       return;
     }
-    // Prevent rapid misfires across different codes within 350ms
-    if (now - lastScanTimeRef.current < 350) {
+    // Distinct barcode cooldown: 80ms (allows fast, smooth sequential scanning across different books)
+    if (now - lastScanTimeRef.current < 80) {
       return;
     }
 
@@ -122,7 +122,7 @@ export default function FullscreenCameraScanner({
         message: `Added: ${matched.product_name}`,
         subMessage: `${currencySymbol}${unitPrice.toFixed(2)} · Cart: ×${newQty}`
       });
-      notifTimerRef.current = setTimeout(() => setLastNotification(null), 3500);
+      notifTimerRef.current = setTimeout(() => setLastNotification(null), 2200);
 
     } else {
       // Unmatched / Unknown Barcode
@@ -141,9 +141,15 @@ export default function FullscreenCameraScanner({
         message: `Barcode "${trimmed}" not in catalog`,
         subMessage: 'Tap below to register this book into inventory'
       });
-      notifTimerRef.current = setTimeout(() => setLastNotification(null), 6000);
+      notifTimerRef.current = setTimeout(() => setLastNotification(null), 4000);
     }
   }, [isPaused, products, soundEnabled, onAddToCart, cart, priceMode, currencySymbol]);
+
+  // Keep latest handler in ref so live interval always calls current callback with latest state
+  const handleBarcodeDetectedRef = useRef(handleBarcodeDetected);
+  useEffect(() => {
+    handleBarcodeDetectedRef.current = handleBarcodeDetected;
+  }, [handleBarcodeDetected]);
 
   // ─── Camera Management (Direct MediaStream, Zero Black Canvas Overlays) ──────
 
@@ -172,8 +178,6 @@ export default function FullscreenCameraScanner({
 
     try {
       // Request stream with base resolution constraints.
-      // NOTE: focusMode/exposureMode are track-level advanced constraints
-      //       and must be applied via track.applyConstraints() after stream is obtained.
       const constraints = {
         video: {
           facingMode: { ideal: mode },
@@ -192,19 +196,15 @@ export default function FullscreenCameraScanner({
       streamRef.current = stream;
 
       // Apply camera-level advanced constraints on the track directly.
-      // focusMode: 'continuous' ensures the lens hunts and locks fast on Android.
-      // This is the correct API — NOT inside getUserMedia constraints.
       try {
         const track = stream.getVideoTracks()[0];
         if (track && track.getCapabilities && track.applyConstraints) {
           const caps = track.getCapabilities();
 
-          // Check torch support
           if (caps && ('torch' in caps || caps.torch)) {
             setTorchAvailable(true);
           }
 
-          // Apply continuous autofocus + auto exposure if supported
           const advanced = {};
           if (caps.focusMode && caps.focusMode.includes('continuous')) {
             advanced.focusMode = 'continuous';
@@ -219,6 +219,12 @@ export default function FullscreenCameraScanner({
       } catch (e) {}
 
       if (videoRef.current) {
+        // Enforce iOS Safari WebKit inline muted playback
+        videoRef.current.muted = true;
+        videoRef.current.defaultMuted = true;
+        videoRef.current.playsInline = true;
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('webkit-playsinline', 'true');
         videoRef.current.srcObject = stream;
         try {
           await videoRef.current.play();
@@ -231,35 +237,39 @@ export default function FullscreenCameraScanner({
         setCameraError(null);
 
         // ─── Live Detection Loop ────────────────────────────────────────────
-        // PRIMARY:  Native BarcodeDetector (~5ms, hardware GPU, Android Chrome)
-        //           Runs every tick (100ms) when confirmed available.
-        // FALLBACK: ZXing @zxing/library BrowserMultiFormatReader.
-        //           When native is NOT ready: runs every tick (100ms) for best speed.
-        //           When native IS ready:     runs every 2nd tick (200ms) as safety net.
         if (liveLoopRef.current) clearInterval(liveLoopRef.current);
         liveLoopRef.current = setInterval(async () => {
           if (!isMountedRef.current || !videoRef.current) return;
-          // Read isPaused from ref so the interval closure is never stale
           if (isPausedRef.current) return;
           const video = videoRef.current;
-          if (video.readyState < 2 || video.paused) return;
+          
+          // If iOS Safari paused video during audio playback, auto-resume
+          if (video.paused) {
+            video.play().catch(() => {});
+            return;
+          }
+          if (video.readyState < 2 || !video.videoWidth) return;
 
-          // 1. Hardware BarcodeDetector (instant when supported)
+          // 1. Hardware BarcodeDetector (instant ~5ms on Android when supported)
           let code = await detectFromVideoFrame(video);
 
-          // 2. ZXing fallback:
-          //    - When native isn't ready: run every tick for maximum speed.
-          //    - When native IS ready: run every 2nd tick (200ms) as a safety net only.
+          // 2. High-speed zxing-wasm C++ WebAssembly (~8-15ms on both Android & iOS)
           if (!code) {
-            contrastScanTickRef.current = (contrastScanTickRef.current + 1) % 2;
-            const nativeOk = isNativeReady();
-            if (!nativeOk || contrastScanTickRef.current === 0) {
-              code = await decodeLiveVideoFrameFast(video);
-            }
+            code = await decodeLiveVideoFrameFast(video);
           }
 
-          if (code) handleBarcodeDetected(code);
-        }, 100); // 10fps — optimal balance of speed vs mobile CPU heat
+          if (code) {
+            if (handleBarcodeDetectedRef.current) {
+              handleBarcodeDetectedRef.current(code);
+            }
+          } else {
+            // When camera sees no barcode for >350ms (between books),
+            // clear lastScanCodeRef so returning to any item scans immediately without sticking
+            if (Date.now() - lastScanTimeRef.current > 350) {
+              lastScanCodeRef.current = '';
+            }
+          }
+        }, 100); // 10fps
       }
     } catch (err) {
       console.error('Camera stream error:', err);
@@ -268,7 +278,7 @@ export default function FullscreenCameraScanner({
         setCameraError(err.message || 'Camera permission denied or camera not found.');
       }
     }
-  }, [facingMode, handleBarcodeDetected, stopCamera]);
+  }, [facingMode, stopCamera]);
 
 
   // Lifecycle
@@ -305,6 +315,22 @@ export default function FullscreenCameraScanner({
     } catch (err) {
       console.warn('Torch toggle failed:', err);
     }
+  };
+
+  // Tap to refocus (especially valuable on Android macro/book covers)
+  const handleTapToFocus = async () => {
+    if (!streamRef.current) return;
+    try {
+      const track = streamRef.current.getVideoTracks()[0];
+      if (track && track.getCapabilities && track.applyConstraints) {
+        const caps = track.getCapabilities();
+        if (caps.focusMode && caps.focusMode.includes('continuous')) {
+          await track.applyConstraints({
+            advanced: [{ focusMode: 'continuous' }]
+          }).catch(() => {});
+        }
+      }
+    } catch (err) {}
   };
 
   return (
@@ -564,21 +590,26 @@ export default function FullscreenCameraScanner({
       }}>
 
         {/* Reticle Container */}
-        <div style={{
-          position: 'relative',
-          width: 'min(88%, 560px)',
-          height: 'min(44vh, 250px)',
-          border: scanFlash 
-            ? '3px solid var(--accent-emerald)' 
-            : '2px solid rgba(255, 255, 255, 0.35)',
-          borderRadius: '24px',
-          boxShadow: scanFlash 
-            ? '0 0 45px rgba(16, 185, 129, 0.85), inset 0 0 25px rgba(16, 185, 129, 0.5)' 
-            : '0 0 20px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(0, 0, 0, 0.3)',
-          transition: 'border 0.15s, box-shadow 0.15s',
-          overflow: 'hidden',
-          background: 'transparent'
-        }}>
+        <div 
+          onClick={handleTapToFocus}
+          title="Tap to focus camera"
+          style={{
+            position: 'relative',
+            width: 'min(88%, 560px)',
+            height: 'min(44vh, 250px)',
+            border: scanFlash 
+              ? '3px solid var(--accent-emerald)' 
+              : '2px solid rgba(255, 255, 255, 0.35)',
+            borderRadius: '24px',
+            boxShadow: scanFlash 
+              ? '0 0 45px rgba(16, 185, 129, 0.85), inset 0 0 25px rgba(16, 185, 129, 0.5)' 
+              : '0 0 20px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(0, 0, 0, 0.3)',
+            transition: 'border 0.15s, box-shadow 0.15s',
+            overflow: 'hidden',
+            background: 'transparent',
+            pointerEvents: 'auto',
+            cursor: 'pointer'
+          }}>
 
           {/* Corner Brackets */}
           <div style={{ position: 'absolute', top: 0, left: 0, width: '28px', height: '28px', borderTop: '4px solid var(--accent-emerald)', borderLeft: '4px solid var(--accent-emerald)', borderTopLeftRadius: '20px' }} />

@@ -248,14 +248,18 @@ export default function SellingInterface({
   };
 
   const addToCart = (product) => {
-    const existingIdx = cart.findIndex(c => c.id === product.id);
-    if (existingIdx >= 0) {
-      const updated = [...cart];
-      updated[existingIdx].quantity += 1;
-      setCart(updated);
-    } else {
-      setCart([...cart, { ...product, quantity: 1, discount: 0, priceMode: priceMode }]);
-    }
+    if (!product) return;
+    setCart(prev => {
+      const existingIdx = prev.findIndex(c => c.id === product.id);
+      if (existingIdx >= 0) {
+        return prev.map((item, idx) =>
+          idx === existingIdx
+            ? { ...item, quantity: (item.quantity || 1) + 1 }
+            : item
+        );
+      }
+      return [...prev, { ...product, quantity: 1, discount: 0, priceMode: priceMode }];
+    });
   };
 
   const updateItemPriceMode = (id, mode) => {
