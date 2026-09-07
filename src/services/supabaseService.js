@@ -216,6 +216,19 @@ export const deleteAllProducts = async () => {
   if (error) throw new Error(error.message);
 };
 
+// Wipe all barcodes — sets barcode to '' for every product, preserving all other data
+export const wipeAllProductBarcodes = async () => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+
+  const { error } = await client
+    .from('products')
+    .update({ barcode: '', updated_at: new Date().toISOString() })
+    .neq('id', '00000000-0000-0000-0000-000000000000');
+
+  if (error) throw new Error(error.message);
+};
+
 export const updateProductStock = async (productId, newQty) => {
   const client = getSupabaseClient();
   if (!client) throw new Error('Supabase not configured');

@@ -55,6 +55,8 @@ export default function SellingInterface({
   const [borrowInlineForm, setBorrowInlineForm] = useState({ borrow_supplier: '', borrow_cost_price: '' });
 
   const [selectedCat, setSelectedCat] = useState('all');
+  const [selectedGrade, setSelectedGrade] = useState('all');
+  const [selectedPublisher, setSelectedPublisher] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [priceMode, setPriceMode] = useState('retail');
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -107,12 +109,41 @@ export default function SellingInterface({
     return syns.join(' ');
   };
 
-  // Filter products by category, title, publisher, author, grade/class, and barcode
+  // Derive unique publishers and grades dynamically from products
+  const allPublishers = useMemo(() => {
+    const set = new Set();
+    products.forEach(p => { if (p && p.publisher && p.publisher.trim()) set.add(p.publisher.trim()); });
+    return Array.from(set).sort();
+  }, [products]);
+
+  const allGrades = useMemo(() => {
+    const set = new Set();
+    products.forEach(p => {
+      const g = getProductGrade(p);
+      if (g) set.add(g);
+    });
+    return Array.from(set).sort();
+  }, [products]);
+
+  // Filter products by category, grade, publisher, title, author, and barcode
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       if (!p) return false;
       const matchesCat = selectedCat === 'all' || p.category_id === selectedCat || p.category_name === selectedCat;
       if (!matchesCat) return false;
+
+      // Grade/Class filter
+      if (selectedGrade !== 'all') {
+        const pg = getProductGrade(p);
+        if (!pg || pg.toLowerCase() !== selectedGrade.toLowerCase()) return false;
+      }
+
+      // Publisher filter
+      if (selectedPublisher !== 'all') {
+        const pp = (p.publisher || '').trim().toLowerCase();
+        if (pp !== selectedPublisher.toLowerCase()) return false;
+      }
+
       if (!searchQuery) return true;
 
       const q = searchQuery.toLowerCase().trim();
@@ -125,21 +156,18 @@ export default function SellingInterface({
       const barcode = String(p.barcode || '').toLowerCase();
       const gradeSynonyms = getGradeSynonyms(`${prodName} ${category}`);
 
-      // Combined searchable text across title, author/publisher, class/grade, barcode, and educational aliases
       const fullSearchable = `${prodName} ${publisher} ${author} ${category} ${gradeSynonyms} ${barcode}`;
-
-      // Match if all search words appear in the book's metadata or direct barcode match
       const allTokensMatch = qTokens.every(token => fullSearchable.includes(token));
       const barcodeMatch = barcode.includes(q);
 
       return allTokensMatch || barcodeMatch;
     });
-  }, [products, selectedCat, searchQuery]);
+  }, [products, selectedCat, selectedGrade, selectedPublisher, searchQuery]);
 
-  // Reset pagination on search or category change
+  // Reset pagination when any filter changes
   React.useEffect(() => {
     setVisibleCount(40);
-  }, [searchQuery, selectedCat]);
+  }, [searchQuery, selectedCat, selectedGrade, selectedPublisher]);
 
   const displayedProducts = useMemo(() => {
     return filteredProducts.slice(0, visibleCount);
@@ -695,64 +723,155 @@ export default function SellingInterface({
             </div>
           </div>
 
-        {/* Categories Bar Pills — sticky so pills always float above the product list */}
+        {/* ── Sticky Filter Header: Categories + Grade + Publisher ── */}
         <div style={{
           position: 'sticky',
           top: 0,
-          zIndex: 10,
+          zIndex: 30,
           background: 'var(--bg-surface)',
+          borderBottom: '1px solid var(--border-light)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
           display: 'flex',
-          gap: '0.4rem',
-          overflowX: 'auto',
-          paddingTop: '0.15rem',
-          paddingBottom: '0.35rem',
-          scrollbarWidth: 'none',
-          marginLeft: '-0.1rem',
-          marginRight: '-0.1rem',
-          paddingLeft: '0.1rem',
-          paddingRight: '0.1rem',
+          flexDirection: 'column',
+          gap: '0.35rem',
+          paddingBottom: '0.45rem',
+          paddingTop: '0.1rem',
         }}>
-          <button
-            onClick={() => setSelectedCat('all')}
-            style={{
-              padding: '0.35rem 0.75rem',
-              borderRadius: 'var(--radius-full)',
-              background: selectedCat === 'all' ? 'var(--primary)' : 'var(--bg-surface-elevated)',
-              color: selectedCat === 'all' ? '#fff' : 'var(--text-muted)',
-              border: '1px solid var(--border-light)',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              flexShrink: 0
-            }}
-          >
-            All ({products.length})
-          </button>
-          {categories.map(cat => {
-            const count = products.filter(p => p.category_id === cat.id || p.category_name === cat.name).length;
-            if (count === 0) return null; // hide empty categories
-            return (
+
+          {/* Category pills row */}
+          <div style={{
+            display: 'flex',
+            gap: '0.4rem',
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+            paddingLeft: '0.1rem',
+            paddingRight: '0.1rem',
+          }}>
+            <button
+              onClick={() => setSelectedCat('all')}
+              style={{
+                padding: '0.32rem 0.7rem',
+                borderRadius: 'var(--radius-full)',
+                background: selectedCat === 'all' ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                color: selectedCat === 'all' ? '#fff' : 'var(--text-muted)',
+                border: '1px solid var(--border-light)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                flexShrink: 0
+              }}
+            >
+              All ({products.length})
+            </button>
+            {categories.map(cat => {
+              const count = products.filter(p => p.category_id === cat.id || p.category_name === cat.name).length;
+              if (count === 0) return null;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCat(cat.id)}
+                  style={{
+                    padding: '0.32rem 0.7rem',
+                    borderRadius: 'var(--radius-full)',
+                    background: selectedCat === cat.id ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                    color: selectedCat === cat.id ? '#fff' : 'var(--text-muted)',
+                    border: '1px solid var(--border-light)',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
+                  }}
+                >
+                  {cat.name} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Grade + Publisher dropdowns row */}
+          <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', alignItems: 'center', paddingLeft: '0.1rem' }}>
+            {/* Class / Grade */}
+            <select
+              value={selectedGrade}
+              onChange={e => setSelectedGrade(e.target.value)}
+              style={{
+                fontSize: '0.76rem',
+                fontWeight: 600,
+                padding: '0.3rem 0.55rem',
+                borderRadius: 'var(--radius-sm)',
+                border: selectedGrade !== 'all' ? '1.5px solid var(--primary)' : '1px solid var(--border-light)',
+                background: selectedGrade !== 'all' ? 'var(--primary-light)' : 'var(--bg-surface-elevated)',
+                color: selectedGrade !== 'all' ? 'var(--primary)' : 'var(--text-main)',
+                cursor: 'pointer',
+                minWidth: '110px',
+                maxWidth: '160px',
+              }}
+            >
+              <option value="all">📚 All Classes</option>
+              {allGrades.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+
+            {/* Publisher */}
+            <select
+              value={selectedPublisher}
+              onChange={e => setSelectedPublisher(e.target.value)}
+              style={{
+                fontSize: '0.76rem',
+                fontWeight: 600,
+                padding: '0.3rem 0.55rem',
+                borderRadius: 'var(--radius-sm)',
+                border: selectedPublisher !== 'all' ? '1.5px solid var(--primary)' : '1px solid var(--border-light)',
+                background: selectedPublisher !== 'all' ? 'var(--primary-light)' : 'var(--bg-surface-elevated)',
+                color: selectedPublisher !== 'all' ? 'var(--primary)' : 'var(--text-main)',
+                cursor: 'pointer',
+                minWidth: '120px',
+                maxWidth: '170px',
+              }}
+            >
+              <option value="all">🏢 All Publishers</option>
+              {allPublishers.map(pub => <option key={pub} value={pub}>{pub}</option>)}
+            </select>
+
+            {/* Clear active filters */}
+            {(selectedGrade !== 'all' || selectedPublisher !== 'all' || selectedCat !== 'all') && (
               <button
-                key={cat.id}
-                onClick={() => setSelectedCat(cat.id)}
+                type="button"
+                onClick={() => { setSelectedGrade('all'); setSelectedPublisher('all'); setSelectedCat('all'); }}
                 style={{
-                  padding: '0.35rem 0.75rem',
-                  borderRadius: 'var(--radius-full)',
-                  background: selectedCat === cat.id ? 'var(--primary)' : 'var(--bg-surface-elevated)',
-                  color: selectedCat === cat.id ? '#fff' : 'var(--text-muted)',
-                  border: '1px solid var(--border-light)',
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  padding: '0.3rem 0.6rem',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--accent-rose-light)',
+                  color: 'var(--accent-rose)',
+                  border: '1px solid var(--accent-rose)',
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
-                  flexShrink: 0
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.2rem'
                 }}
               >
-                {cat.name} ({count})
+                ✕ Clear Filters
+                <span style={{
+                  background: 'var(--accent-rose)',
+                  color: '#fff',
+                  borderRadius: '999px',
+                  padding: '0 0.3rem',
+                  fontSize: '0.65rem',
+                  fontWeight: 800
+                }}>
+                  {filteredProducts.length}
+                </span>
               </button>
-            );
-          })}
+            )}
+
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+              {filteredProducts.length} of {products.length}
+            </span>
+          </div>
         </div>
 
       {/* Book Catalog List */}

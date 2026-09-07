@@ -47,6 +47,8 @@ export default function ProductManagement({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all'); // 'all', 'low_stock', 'expiring'
   const [selectedCat, setSelectedCat] = useState('all');
+  const [selectedGrade, setSelectedGrade] = useState('all');
+  const [selectedPublisher, setSelectedPublisher] = useState('all');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
@@ -132,6 +134,22 @@ export default function ProductManagement({
     product_image: ''
   });
 
+  // Derive unique publishers and grades from inventory
+  const allPublishers = useMemo(() => {
+    const set = new Set();
+    safeProducts.forEach(p => { if (p && p.publisher && p.publisher.trim()) set.add(p.publisher.trim()); });
+    return Array.from(set).sort();
+  }, [safeProducts]);
+
+  const allGrades = useMemo(() => {
+    const set = new Set();
+    safeProducts.forEach(p => {
+      const g = (p.grade || p.class_name || p.level || '').toString().trim();
+      if (g && g.toLowerCase() !== 'general' && g.toLowerCase() !== 'uncategorized') set.add(g);
+    });
+    return Array.from(set).sort();
+  }, [safeProducts]);
+
   // Filtered Products
   const filteredProducts = useMemo(() => {
     return safeProducts.filter(p => {
@@ -144,6 +162,18 @@ export default function ProductManagement({
 
       if (!matchesQuery || !matchesCat) return false;
 
+      // Grade filter
+      if (selectedGrade !== 'all') {
+        const g = (p.grade || p.class_name || p.level || '').toString().trim();
+        if (g.toLowerCase() !== selectedGrade.toLowerCase()) return false;
+      }
+
+      // Publisher filter
+      if (selectedPublisher !== 'all') {
+        const pp = (p.publisher || '').trim().toLowerCase();
+        if (pp !== selectedPublisher.toLowerCase()) return false;
+      }
+
       if (filterType === 'low_stock') {
         return (p.stock_quantity || 0) <= 10;
       }
@@ -155,11 +185,11 @@ export default function ProductManagement({
 
       return true;
     });
-  }, [safeProducts, searchQuery, selectedCat, filterType]);
+  }, [safeProducts, searchQuery, selectedCat, selectedGrade, selectedPublisher, filterType]);
 
   React.useEffect(() => {
     setVisibleCount(40);
-  }, [searchQuery, selectedCat, filterType]);
+  }, [searchQuery, selectedCat, selectedGrade, selectedPublisher, filterType]);
 
   const displayedProducts = useMemo(() => {
     return filteredProducts.slice(0, visibleCount);
@@ -742,6 +772,71 @@ export default function ProductManagement({
             {cat.name}
           </button>
         ))}
+      </div>
+
+      {/* Grade + Publisher dropdowns */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <select
+          value={selectedGrade}
+          onChange={e => setSelectedGrade(e.target.value)}
+          style={{
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            padding: '0.35rem 0.6rem',
+            borderRadius: 'var(--radius-sm)',
+            border: selectedGrade !== 'all' ? '1.5px solid var(--primary)' : '1px solid var(--border-light)',
+            background: selectedGrade !== 'all' ? 'var(--primary-light)' : 'var(--bg-surface-elevated)',
+            color: selectedGrade !== 'all' ? 'var(--primary)' : 'var(--text-main)',
+            cursor: 'pointer',
+            minWidth: '120px'
+          }}
+        >
+          <option value="all">📚 All Classes</option>
+          {allGrades.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
+
+        <select
+          value={selectedPublisher}
+          onChange={e => setSelectedPublisher(e.target.value)}
+          style={{
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            padding: '0.35rem 0.6rem',
+            borderRadius: 'var(--radius-sm)',
+            border: selectedPublisher !== 'all' ? '1.5px solid var(--primary)' : '1px solid var(--border-light)',
+            background: selectedPublisher !== 'all' ? 'var(--primary-light)' : 'var(--bg-surface-elevated)',
+            color: selectedPublisher !== 'all' ? 'var(--primary)' : 'var(--text-main)',
+            cursor: 'pointer',
+            minWidth: '130px'
+          }}
+        >
+          <option value="all">🏢 All Publishers</option>
+          {allPublishers.map(pub => <option key={pub} value={pub}>{pub}</option>)}
+        </select>
+
+        {(selectedGrade !== 'all' || selectedPublisher !== 'all') && (
+          <button
+            type="button"
+            onClick={() => { setSelectedGrade('all'); setSelectedPublisher('all'); }}
+            style={{
+              fontSize: '0.74rem',
+              fontWeight: 700,
+              padding: '0.33rem 0.65rem',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--accent-rose-light)',
+              color: 'var(--accent-rose)',
+              border: '1px solid var(--accent-rose)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            ✕ Clear Filters
+          </button>
+        )}
+
+        <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+          {filteredProducts.length} of {safeProducts.length} items
+        </span>
       </div>
 
       {/* Multi-Select Action Bar */}
@@ -1458,7 +1553,7 @@ export default function ProductManagement({
                   <button
                     type="button"
                     className="btn-primary"
-                    disabled={isSubmitting || !barcodeInputValue.trim() || barcodeInputValue.trim() === barcodeActionProduct.barcode}
+                    disabled={isSubmitting || !barcodeInputValue.trim() || barcodeInputValue.trim() === (barcodeActionProduct.barcode || '').trim()}
                     onClick={() => handleSaveProductBarcode(barcodeActionProduct, barcodeInputValue)}
                     style={{ fontSize: '0.78rem', padding: '0 0.85rem', whiteSpace: 'nowrap' }}
                   >

@@ -282,12 +282,14 @@ export async function shareReceiptPDFViaWhatsApp(order, settings = {}, targetPho
     `_Brushwell POS Digital Receipt_`;
 
   // 1. Try Native Web Share API with the PDF file (works on Android & iOS mobile devices)
+  // IMPORTANT: Do NOT include 'text' alongside 'files' — on WhatsApp Android the presence of
+  // both causes the share intent to send text-only and silently drop the PDF attachment.
   if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({
         files: [file],
-        title: `Receipt #${order.order_id} - ${storeName}`,
-        text: shareText
+        title: `Receipt #${order.order_id} - ${storeName}`
+        // ⚠️ No 'text' here — WhatsApp discards the PDF file when text is also present
       });
       return { success: true, method: 'native_share' };
     } catch (err) {

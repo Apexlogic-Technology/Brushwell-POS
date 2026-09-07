@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Bluetooth, Check, AlertCircle, RefreshCw, Database, Printer, Percent, Plus, Trash2, Eye, EyeOff, Smartphone, Copy, Sparkles, Camera } from 'lucide-react';
-import { getSettings, saveSettings, DEFAULT_TAX_TYPES, testSupabaseConnection, resetSupabaseClient } from '../services/supabaseService';
+import { getSettings, saveSettings, DEFAULT_TAX_TYPES, testSupabaseConnection, resetSupabaseClient, wipeAllProductBarcodes } from '../services/supabaseService';
 import { connectBluetoothPrinter, disconnectBluetoothPrinter } from '../services/printerService';
 import { testGeminiApiKey } from '../services/visionService';
 
@@ -15,6 +15,8 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
   const [showGeminiKey, setShowGeminiKey]         = useState(false);
   const [geminiTestStatus, setGeminiTestStatus]   = useState('idle');
   const [geminiTestMsg, setGeminiTestMsg]         = useState('');
+  const [barcodeWipeStatus, setBarcodeWipeStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
+  const [barcodeWipeMsg, setBarcodeWipeMsg]       = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -27,6 +29,8 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
       setQrCopied(false);
       setGeminiTestStatus('idle');
       setGeminiTestMsg('');
+      setBarcodeWipeStatus('idle');
+      setBarcodeWipeMsg('');
     }
   }, [isOpen]);
 
@@ -362,6 +366,62 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
             <div style={{ marginTop: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', background: 'var(--primary-light)', padding: '0.45rem 0.75rem', borderRadius: 'var(--radius-md)' }}>
               <span>Total Active Rate:</span>
               <span>{totalTaxPct.toFixed(1)}%</span>
+            </div>
+          </section>
+
+          {/* Database Maintenance — Barcode Clean Reset */}
+          <section>
+            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Database size={14} /> Database Maintenance
+            </div>
+
+            <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-main)' }}>🧹 Clean Reset All Barcodes</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem', lineHeight: 1.5 }}>
+                  Wipes the barcode field for <strong>every product</strong> in your database, setting them all to empty. Book titles, prices, stock, and all other data are preserved. Use this to start fresh barcode assignment one-by-one.
+                </div>
+              </div>
+
+              {barcodeWipeStatus === 'success' && (
+                <div style={{ background: 'var(--accent-emerald-light)', color: 'var(--accent-emerald)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Check size={14} /> {barcodeWipeMsg}
+                </div>
+              )}
+              {barcodeWipeStatus === 'error' && (
+                <div style={{ background: 'var(--accent-rose-light)', color: 'var(--accent-rose)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <AlertCircle size={14} /> {barcodeWipeMsg}
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={barcodeWipeStatus === 'loading'}
+                onClick={async () => {
+                  const confirmed = window.confirm(
+                    '⚠️ CONFIRM BARCODE RESET\n\nThis will clear the barcode field for ALL products in your database.\n\n• Book titles, prices, stock quantities, and publishers are NOT affected.\n• You will need to re-scan or manually assign a barcode to each product.\n\nAre you absolutely sure you want to continue?'
+                  );
+                  if (!confirmed) return;
+                  setBarcodeWipeStatus('loading');
+                  setBarcodeWipeMsg('');
+                  try {
+                    await wipeAllProductBarcodes();
+                    setBarcodeWipeStatus('success');
+                    setBarcodeWipeMsg('All product barcodes have been cleared successfully.');
+                  } catch (err) {
+                    setBarcodeWipeStatus('error');
+                    setBarcodeWipeMsg('Failed to clear barcodes: ' + (err.message || 'Unknown error'));
+                  }
+                }}
+                style={{ alignSelf: 'flex-start', fontSize: '0.8rem', padding: '0.45rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                {barcodeWipeStatus === 'loading' ? (
+                  <><RefreshCw size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> Wiping...</>
+                ) : (
+                  <><Trash2 size={14} /> Wipe All Barcodes</>
+                )}
+              </button>
             </div>
           </section>
 
