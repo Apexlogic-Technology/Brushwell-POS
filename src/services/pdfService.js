@@ -263,12 +263,12 @@ export function downloadReceiptPDF(order, settings = {}) {
 
 /**
 /**
- * Format complete, beautiful WhatsApp receipt text with items and online PDF download link
+ * Format minimal WhatsApp receipt text (PDF-only mode — no links).
+ * Used when the PDF is attached directly via file share or as a fallback on desktop.
  */
-export function formatWhatsAppReceiptText(order, settings = {}, receiptUrl = '') {
+export function formatWhatsAppReceiptText(order, settings = {}) {
   const currencySymbol = settings.currency_symbol || 'GH₵';
   const total = Number(order.total || 0).toFixed(2);
-  const subtotal = Number(order.subtotal || 0).toFixed(2);
   const storeName = settings.store_name || 'Brushwell Books';
   const custName = order.customer_name || 'Walk-in Customer';
   const dateStr = new Date(order.created_at || order.timestamp || Date.now()).toLocaleString();
@@ -278,77 +278,83 @@ export function formatWhatsAppReceiptText(order, settings = {}, receiptUrl = '')
     return `  ${idx + 1}. *${item.product_name}* (x${item.quantity}) — ${currencySymbol}${itemTotal}`;
   }).join('\n');
 
-  let text = `🧾 *OFFICIAL SALES RECEIPT #${order.order_id}*\n` +
+  let text =
+    `🧾 *OFFICIAL SALES RECEIPT #${order.order_id}*\n` +
     `*${storeName}*\n` +
     `═══════════════════════\n` +
     `👤 *Customer:* ${custName}\n` +
     `📅 *Date:* ${dateStr}\n` +
     `💳 *Payment:* ${order.payment_method || 'Cash'}\n` +
     `═══════════════════════\n` +
-    `*ITEMS PURCHASED:*\n${itemsList || '  1. Books & Supplies'}\n` +
-    `═══════════════════════\n` +
-    `Subtotal: ${currencySymbol}${subtotal}\n`;
+    `*ITEMS:*\n${itemsList || '  —'}\n` +
+    `═══════════════════════\n`;
 
   if (order.discount > 0) {
     text += `Discount: -${currencySymbol}${Number(order.discount).toFixed(2)}\n`;
   }
-  if (order.apply_tax || order.tax_applied) {
-    const taxAmt = Number(order.tax_total || order.tax_amount || 0).toFixed(2);
-    if (taxAmt > 0) text += `Tax / VAT: +${currencySymbol}${taxAmt}\n`;
+  if ((order.apply_tax || order.tax_applied) && Number(order.tax_total || order.tax_amount || 0) > 0) {
+    text += `Tax / VAT: +${currencySymbol}${Number(order.tax_total || order.tax_amount).toFixed(2)}\n`;
   }
 
   text += `*TOTAL PAID: ${currencySymbol}${total}*\n` +
-    `═══════════════════════\n`;
+    `═══════════════════════\n` +
+    `📎 _Your official PDF receipt is attached._\n` +
+    `_Thank you for shopping with ${storeName}!_`;
 
-  if (receiptUrl) {
-    text += `📄 *Download Official PDF Receipt:*\n${receiptUrl}\n\n`;
-  }
-
-  text += `_Thank you for shopping with ${storeName}!_`;
   return text;
 }
 
 /**
- * Share Receipt PDF via WhatsApp
- * 1. Checks if Web Share API with files is supported (mobile browsers like Chrome/Edge on Android, Safari iOS)
- * 2. If supported, triggers native share with the PDF file attached directly
- * 3. Also provides direct WhatsApp Web / API launch + instant PDF download fallback
+ * Share Receipt PDF via WhatsApp.
+ *
+ * Strategy (PDF-first, no links):
+ * 1. On mobile/tablet: Use the native Web Share API to attach the PDF file directly.
+ *    The OS share sheet will open; user selects WhatsApp — PDF is attached.
+ * 2. On desktop or if native share is unavailable: Download the PDF automatically
+ *    and open a WhatsApp chat with a minimal receipt summary (no receipt link).
+ *    User drags the downloaded PDF into the WhatsApp chat to attach.
  */
 export async function shareReceiptPDFViaWhatsApp(order, settings = {}, targetPhone = '') {
   const { file, filename } = generateReceiptPDFBlob(order, settings);
   const cleanPhone = formatWhatsAppPhone(targetPhone || order.customer_phone);
-  const storeName = settings.store_name || 'Brushwell Books';
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '';
-  const receiptUrl = baseUrl ? `${baseUrl}?receipt=${order.order_id}` : '';
+  // Build minimal WhatsApp text — no links, PDF is the receipt
+  const shareText = formatWhatsAppReceiptText(order, settings);
 
-  const shareText = formatWhatsAppReceiptText(order, settings, receiptUrl);
-
-  // 1. Try Native Web Share API with the PDF file (works on Android & iOS mobile devices)
-  if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+  // ── Mobile path: Web Share API with file attachment ──────────────────────
+  // Supported on: Android Chrome, iOS Safari 15.1+, Samsung Internet
+  if (
+    typeof navigator !== 'undefined' &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: [file] })
+  ) {
     try {
       await navigator.share({
         files: [file],
-        title: `Receipt_${order.order_id}.pdf`
+        title: `Receipt #${order.order_id}`,
+        text: shareText
       });
-      return { success: true, method: 'native_share', filename, receiptUrl };
+      return { success: true, method: 'native_file_share', filename };
     } catch (err) {
       if (err.name === 'AbortError') {
+        // User dismissed the share sheet — do nothing
         return { success: false, aborted: true };
       }
-      console.warn('Native file share failed, falling back to download + WhatsApp link:', err);
+      // Unexpected error — fall through to desktop path
+      console.warn('Native file share failed:', err);
     }
   }
 
-  // 2. Fallback: Automatically download the PDF receipt so user has the file
+  // ── Desktop / fallback path ───────────────────────────────────────────────
+  // Step 1: Instantly download the PDF to the user's device
   downloadReceiptPDF(order, settings);
 
-  // 3. Open WhatsApp chat with pre-filled receipt details
+  // Step 2: Open WhatsApp with a minimal text message (PDF is in Downloads folder)
   const whatsappUrl = cleanPhone
     ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(shareText)}`
     : `https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`;
 
   window.open(whatsappUrl, '_blank');
 
-  return { success: true, method: 'download_and_chat', filename, receiptUrl };
+  return { success: true, method: 'desktop_download_and_chat', filename };
 }

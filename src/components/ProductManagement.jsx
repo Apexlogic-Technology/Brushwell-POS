@@ -599,82 +599,30 @@ export default function ProductManagement({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       
-      {/* Top Header & Actions Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <div>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            Inventory
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.15rem 0.55rem', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary)' }}>
-              {safeProducts.length}
-            </span>
-          </h2>
-          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-            Database synced catalog ({filteredProducts.length} showing)
+      {/* Top Header & Actions Bar — two-row layout, no horizontal scroll */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {/* Row 1: Title */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              Inventory
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.15rem 0.55rem', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary)' }}>
+                {safeProducts.length}
+              </span>
+            </h2>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+              Database synced catalog ({filteredProducts.length} showing)
+            </div>
           </div>
-        </div>
 
-        <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-          {/* Primary Add Button */}
-          <button 
-            type="button"
-            className="btn-primary" 
-            onClick={() => openFormModal(null)} 
-            style={{ fontSize: '0.8rem', padding: '0.45rem 0.75rem', gap: '0.3rem' }}
-          >
-            <Plus size={17} /> Add Product
-          </button>
-
-          {/* AI Smart Book Register (Front & Back) */}
-          <button 
-            type="button"
-            className="btn-secondary" 
-            onClick={() => setIsVisualRegisterOpen(true)} 
-            style={{ 
-              fontSize: '0.8rem', 
-              padding: '0.45rem 0.75rem', 
-              gap: '0.35rem',
-              borderColor: 'var(--primary)',
-              color: 'var(--primary)',
-              fontWeight: 700,
-              background: 'var(--primary-light)'
-            }}
-            title="Scan Front & Back of book to auto-fill Title, Publisher, Category & Barcode"
-          >
-            <Camera size={16} /> 
-            <span>Photo Register</span>
-          </button>
-
-          {/* Tools & Bulk Operations Dropdown / Trigger */}
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => setIsToolsMenuOpen(prev => !prev)}
-            style={{ fontSize: '0.8rem', padding: '0.45rem 0.65rem', gap: '0.3rem', position: 'relative' }}
-            title="Bulk Tools & Excel Import/Export"
-          >
-            <Zap size={15} color="var(--primary)" />
-            <span>Tools</span>
-          </button>
-
-          {/* Manage Categories & Publishers Button */}
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => setIsCatPubModalOpen(true)}
-            style={{ fontSize: '0.8rem', padding: '0.45rem 0.65rem', gap: '0.35rem' }}
-            title="Manage and Rename Categories & Publishers"
-          >
-            <Layers size={15} color="var(--accent-purple)" />
-            <span className="hide-mobile">Categories & Publishers</span>
-          </button>
-
-          {/* View Switcher: Catalog List vs Cards Grid vs Table */}
+          {/* View Switcher — always top-right */}
           <div style={{
             display: 'flex',
             background: 'var(--bg-surface-elevated)',
             padding: '2px',
             borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-light)'
+            border: '1px solid var(--border-light)',
+            flexShrink: 0
           }}>
             <button
               type="button"
@@ -725,6 +673,66 @@ export default function ProductManagement({
               <List size={15} />
             </button>
           </div>
+        </div>
+
+        {/* Row 2: Action buttons — wrap onto multiple lines on small screens */}
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '0.4rem',
+          alignItems: 'center'
+        }}>
+          {/* Add Product */}
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => openFormModal(null)}
+            style={{ fontSize: '0.8rem', padding: '0.45rem 0.75rem', gap: '0.3rem', flexShrink: 0 }}
+          >
+            <Plus size={17} /> Add Product
+          </button>
+
+          {/* Photo Register */}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setIsVisualRegisterOpen(true)}
+            style={{
+              fontSize: '0.8rem',
+              padding: '0.45rem 0.7rem',
+              gap: '0.35rem',
+              borderColor: 'var(--primary)',
+              color: 'var(--primary)',
+              fontWeight: 700,
+              background: 'var(--primary-light)',
+              flexShrink: 0
+            }}
+            title="Scan Front & Back of book to auto-fill Title, Publisher, Category & Barcode"
+          >
+            <Camera size={16} /> Photo Register
+          </button>
+
+          {/* Tools dropdown */}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setIsToolsMenuOpen(prev => !prev)}
+            style={{ fontSize: '0.8rem', padding: '0.45rem 0.7rem', gap: '0.3rem', position: 'relative', flexShrink: 0 }}
+            title="Bulk Tools & Excel Import/Export"
+          >
+            <Zap size={15} color="var(--primary)" /> Tools
+          </button>
+
+          {/* Categories & Publishers */}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setIsCatPubModalOpen(true)}
+            style={{ fontSize: '0.8rem', padding: '0.45rem 0.7rem', gap: '0.35rem', flexShrink: 0 }}
+            title="Manage and Rename Categories & Publishers"
+          >
+            <Layers size={15} color="var(--accent-purple)" /> Categories &amp; Publishers
+          </button>
         </div>
       </div>
 
