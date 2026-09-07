@@ -247,7 +247,10 @@ export function generateReceiptPDFBlob(order, settings = {}) {
   const doc = createReceiptPDF(order, settings);
   const pdfBlob = doc.output('blob');
   const filename = `Receipt_${order.order_id || Date.now()}.pdf`;
-  const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+  const file = new File([pdfBlob], filename, { 
+    type: 'application/pdf',
+    lastModified: Date.now()
+  });
 
   return { blob: pdfBlob, filename, file, doc };
 }
@@ -262,67 +265,34 @@ export function downloadReceiptPDF(order, settings = {}) {
 }
 
 /**
-/**
  * Format minimal WhatsApp receipt text (PDF-only mode — no links).
  * Used when the PDF is attached directly via file share or as a fallback on desktop.
  */
 export function formatWhatsAppReceiptText(order, settings = {}) {
-  const currencySymbol = settings.currency_symbol || 'GH₵';
-  const total = Number(order.total || 0).toFixed(2);
   const storeName = settings.store_name || 'Brushwell Books';
   const custName = order.customer_name || 'Walk-in Customer';
-  const dateStr = new Date(order.created_at || order.timestamp || Date.now()).toLocaleString();
-
-  const itemsList = (order.items || []).map((item, idx) => {
-    const itemTotal = ((parseFloat(item.price) || 0) * (parseInt(item.quantity, 10) || 1)).toFixed(2);
-    return `  ${idx + 1}. *${item.product_name}* (x${item.quantity}) — ${currencySymbol}${itemTotal}`;
-  }).join('\n');
-
-  let text =
-    `🧾 *OFFICIAL SALES RECEIPT #${order.order_id}*\n` +
-    `*${storeName}*\n` +
-    `═══════════════════════\n` +
-    `👤 *Customer:* ${custName}\n` +
-    `📅 *Date:* ${dateStr}\n` +
-    `💳 *Payment:* ${order.payment_method || 'Cash'}\n` +
-    `═══════════════════════\n` +
-    `*ITEMS:*\n${itemsList || '  —'}\n` +
-    `═══════════════════════\n`;
-
-  if (order.discount > 0) {
-    text += `Discount: -${currencySymbol}${Number(order.discount).toFixed(2)}\n`;
-  }
-  if ((order.apply_tax || order.tax_applied) && Number(order.tax_total || order.tax_amount || 0) > 0) {
-    text += `Tax / VAT: +${currencySymbol}${Number(order.tax_total || order.tax_amount).toFixed(2)}\n`;
-  }
-
-  text += `*TOTAL PAID: ${currencySymbol}${total}*\n` +
-    `═══════════════════════\n` +
-    `📎 _Your official PDF receipt is attached._\n` +
-    `_Thank you for shopping with ${storeName}!_`;
-
-  return text;
+  return `Hello ${custName},\nThank you for your purchase from *${storeName}*.\nYour official sales receipt is attached.`;
 }
 
 /**
  * Share Receipt PDF via WhatsApp.
  *
- * Strategy (PDF-first, no links):
- * 1. On mobile/tablet: Use the native Web Share API to attach the PDF file directly.
- *    The OS share sheet will open; user selects WhatsApp — PDF is attached.
- * 2. On desktop or if native share is unavailable: Download the PDF automatically
- *    and open a WhatsApp chat with a minimal receipt summary (no receipt link).
- *    User drags the downloaded PDF into the WhatsApp chat to attach.
+ * Strategy (Strictly PDF document — no text message receipt):
+ * 1. On mobile/tablet: Use native Web Share API with ONLY the PDF file in files: [file].
+ *    Omitting the text parameter ensures WhatsApp treats the share as a pure Document attachment,
+ *    attaching the actual PDF file directly in the chat.
+ * 2. On desktop (where browser sandboxing prohibits direct file injection into web apps):
+ *    Instantly downloads the PDF to the cashier's device and opens WhatsApp chat so
+ *    the cashier can drag & drop the PDF file directly into the conversation.
  */
 export async function shareReceiptPDFViaWhatsApp(order, settings = {}, targetPhone = '') {
   const { file, filename } = generateReceiptPDFBlob(order, settings);
   const cleanPhone = formatWhatsAppPhone(targetPhone || order.customer_phone);
 
-  // Build minimal WhatsApp text — no links, PDF is the receipt
-  const shareText = formatWhatsAppReceiptText(order, settings);
-
-  // ── Mobile path: Web Share API with file attachment ──────────────────────
+  // ── Mobile path: Web Share API with STRICTLY the PDF file ──────────────────
   // Supported on: Android Chrome, iOS Safari 15.1+, Samsung Internet
+  // IMPORTANT: Do NOT pass 'text' alongside 'files' — on mobile WhatsApp, passing
+  // a 'text' parameter causes WhatsApp to prioritize or insert the text instead of the file!
   if (
     typeof navigator !== 'undefined' &&
     typeof navigator.canShare === 'function' &&
@@ -331,8 +301,7 @@ export async function shareReceiptPDFViaWhatsApp(order, settings = {}, targetPho
     try {
       await navigator.share({
         files: [file],
-        title: `Receipt #${order.order_id}`,
-        text: shareText
+        title: filename
       });
       return { success: true, method: 'native_file_share', filename };
     } catch (err) {
@@ -340,19 +309,18 @@ export async function shareReceiptPDFViaWhatsApp(order, settings = {}, targetPho
         // User dismissed the share sheet — do nothing
         return { success: false, aborted: true };
       }
-      // Unexpected error — fall through to desktop path
       console.warn('Native file share failed:', err);
     }
   }
 
   // ── Desktop / fallback path ───────────────────────────────────────────────
-  // Step 1: Instantly download the PDF to the user's device
+  // Step 1: Instantly download the PDF to the cashier's computer
   downloadReceiptPDF(order, settings);
 
-  // Step 2: Open WhatsApp with a minimal text message (PDF is in Downloads folder)
+  // Step 2: Open WhatsApp chat cleanly ready for the cashier to drag the PDF file in
   const whatsappUrl = cleanPhone
-    ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(shareText)}`
-    : `https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`;
+    ? `https://api.whatsapp.com/send?phone=${cleanPhone}`
+    : `https://api.whatsapp.com/send`;
 
   window.open(whatsappUrl, '_blank');
 
