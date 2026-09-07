@@ -15,6 +15,7 @@ import {
   playBeep,
   isNativeReady
 } from '../services/barcodeScannerService';
+import BarcodeDisambiguationModal from './BarcodeDisambiguationModal';
 
 
 export default function FullscreenCameraScanner({
@@ -43,6 +44,7 @@ export default function FullscreenCameraScanner({
   // Scan HUD feedback
   const [scanFlash, setScanFlash] = useState(false);
   const [lastNotification, setLastNotification] = useState(null); // { type, message, product, code }
+  const [disambigData, setDisambigData] = useState(null);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -55,7 +57,7 @@ export default function FullscreenCameraScanner({
   // Ref mirror of isPaused prop — lets the setInterval closure read the latest value
   // without ever going stale (closures capture the value at creation time, not updates).
   const isPausedRef = useRef(isPaused);
-  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => { isPausedRef.current = isPaused || Boolean(disambigData); }, [isPaused, disambigData]);
 
   // Calculate live cart total
   const cartItemCount = cart.reduce((sum, item) => sum + (item.quantity || 1), 0);
@@ -70,7 +72,7 @@ export default function FullscreenCameraScanner({
   // ─── Barcode Scanned Event Handler ─────────────────────────────────────────
 
   const handleBarcodeDetected = useCallback((rawCode) => {
-    if (isPaused) return;
+    if (isPaused || Boolean(disambigData)) return;
 
     const trimmed = String(rawCode || '').trim();
     if (!trimmed || trimmed.length < 3) return;
@@ -88,14 +90,15 @@ export default function FullscreenCameraScanner({
     lastScanTimeRef.current = now;
     lastScanCodeRef.current = trimmed;
 
-    // Lookup product in inventory by barcode or ID
+    // Lookup product in inventory by barcode or ID (find all matches to support shared series barcodes)
     const clean = trimmed.toLowerCase();
-    const matched = products.find(p => 
+    const matches = products.filter(p => 
       (p && p.barcode && String(p.barcode).trim().toLowerCase() === clean) ||
       (p && p.id && String(p.id).trim().toLowerCase() === clean)
     );
 
-    if (matched) {
+    if (matches.length === 1) {
+      const matched = matches[0];
       // 1. Audio & Haptic confirmation
       if (soundEnabled) playBeep(false);
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -124,6 +127,15 @@ export default function FullscreenCameraScanner({
       });
       notifTimerRef.current = setTimeout(() => setLastNotification(null), 2200);
 
+    } else if (matches.length > 1) {
+      // Multiple products share this barcode (different subjects in the same grade series)
+      if (soundEnabled) playBeep(false);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(80);
+      }
+      setScanFlash(true);
+      setTimeout(() => setScanFlash(false), 400);
+      setDisambigData({ barcode: trimmed, matches });
     } else {
       // Unmatched / Unknown Barcode
       if (soundEnabled) playBeep(true);
@@ -177,19 +189,33 @@ export default function FullscreenCameraScanner({
     const mode = overrideFacingMode || facingMode;
 
     try {
-      // Request stream with base resolution constraints.
-      const constraints = {
-        video: {
-          facingMode: { ideal: mode },
-          width:  { ideal: 1280, min: 640 },
-          height: { ideal: 720,  min: 480 },
-        },
-        audio: false
-      };
+      // Request stream with progressive fallback for iOS Safari / mobile WebKit
+      let stream = null;
+      try {
+        const constraints = {
+          video: {
+            facingMode: { ideal: mode },
+            width:  { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (firstErr) {
+        console.warn('[iOS Scanner] High-res constraints failed, trying standard mobile constraints:', firstErr);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: mode ? { ideal: mode } : 'environment' },
+            audio: false
+          });
+        } catch (secondErr) {
+          console.warn('[iOS Scanner] FacingMode constraints failed, trying base video:', secondErr);
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       if (!isMountedRef.current) {
-        stream.getTracks().forEach(t => t.stop());
+        if (stream) stream.getTracks().forEach(t => t.stop());
         return;
       }
 
@@ -1003,6 +1029,33 @@ export default function FullscreenCameraScanner({
           </div>
         </div>
       )}
+
+      {/* Multiple Subjects Disambiguation Modal */}
+      <BarcodeDisambiguationModal
+        isOpen={Boolean(disambigData)}
+        barcode={disambigData?.barcode || ''}
+        matchingProducts={disambigData?.matches || []}
+        onSelectProduct={(product) => {
+          if (onAddToCart) onAddToCart(product);
+          if (soundEnabled) playBeep(false);
+          const inCart = cart.find(c => c.id === product.id);
+          const newQty = (inCart?.quantity || 0) + 1;
+          const unitPrice = priceMode === 'wholesale' ? (product.wholesale_price || 0) : (product.retail_price || 0);
+          if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
+          setLastNotification({
+            type: 'success',
+            product: product,
+            code: disambigData?.barcode || '',
+            message: `Added: ${product.product_name}`,
+            subMessage: `${currencySymbol}${unitPrice.toFixed(2)} · Cart: ×${newQty}`
+          });
+          notifTimerRef.current = setTimeout(() => setLastNotification(null), 2200);
+          setDisambigData(null);
+        }}
+        onClose={() => setDisambigData(null)}
+        currencySymbol={currencySymbol}
+        priceMode={priceMode}
+      />
 
     </div>
   );

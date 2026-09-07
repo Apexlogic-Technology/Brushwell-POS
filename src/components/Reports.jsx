@@ -3,7 +3,7 @@ import {
   BarChart2, TrendingUp, Package, AlertTriangle,
   DollarSign, ShoppingBag, Calendar, Printer,
   BookOpen, Filter, Clock, FileText, ChevronLeft, ChevronRight,
-  RotateCcw, FileSpreadsheet, Handshake, CheckCircle2, Check
+  RotateCcw, FileSpreadsheet, Handshake, CheckCircle2, Check, Search
 } from 'lucide-react';
 import { fetchOrders, fetchProducts, updateOrderBorrowSettlement, fetchOutboundLoans, updateOutboundLoan } from '../services/supabaseService';
 import RefundModal from './RefundModal';
@@ -39,11 +39,21 @@ function getDateBounds(rangeKey, customDate) {
 }
 
 export default function Reports({ session, settings }) {
-  const [activeReport, setActiveReport] = useState('daily'); // 'daily' | 'sales' | 'inventory' | 'borrowed'
+  const [activeReport, setActiveReport] = useState('daily'); // 'daily' | 'sales' | 'inventory' | 'borrowed' | 'outbound'
   const [dateRange, setDateRange] = useState('today');
   const [dailyDate, setDailyDate] = useState(new Date().toISOString().split('T')[0]);
   const [borrowDateRange, setBorrowDateRange] = useState('today');
   const [borrowSupplierFilter, setBorrowSupplierFilter] = useState('all');
+
+  // Sales Summary filter state
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [salesPaymentMethod, setSalesPaymentMethod] = useState('all');
+
+  // Inventory filter state
+  const [invSearchQuery, setInvSearchQuery] = useState('');
+  const [invStatusFilter, setInvStatusFilter] = useState('all'); // 'all' | 'low' | 'out' | 'good'
+  const [invCategoryFilter, setInvCategoryFilter] = useState('all');
+  const [invPublisherFilter, setInvPublisherFilter] = useState('all');
 
   const [isRefundOpen, setIsRefundOpen] = useState(false);
   const [isZReportOpen, setIsZReportOpen] = useState(false);
@@ -110,8 +120,26 @@ export default function Reports({ session, settings }) {
   // ── SALES SUMMARY REPORT ──────────────────────────────────────────────────
   const filteredSales = useMemo(() => {
     const { start, end } = getDateBounds(dateRange);
-    return allSales.filter(s => new Date(s.timestamp) >= start && new Date(s.timestamp) <= end);
+    return allSales.filter(s => {
+      const d = new Date(s.created_at || s.timestamp);
+      return d >= start && d <= end;
+    });
   }, [allSales, dateRange, refreshTrigger]);
+
+  const displayedSales = useMemo(() => {
+    return filteredSales.filter(s => {
+      if (salesPaymentMethod !== 'all' && s.payment_method !== salesPaymentMethod) return false;
+      if (salesSearchQuery.trim()) {
+        const q = salesSearchQuery.toLowerCase().trim();
+        const orderId = String(s.order_id || '').toLowerCase();
+        const cust = (s.customer_name || '').toLowerCase();
+        const cashier = (s.cashier_name || '').toLowerCase();
+        const itemsStr = (s.items || []).map(i => `${i.product_name || ''} ${i.publisher || ''} ${i.grade || ''}`).join(' ').toLowerCase();
+        if (!orderId.includes(q) && !cust.includes(q) && !cashier.includes(q) && !itemsStr.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [filteredSales, salesPaymentMethod, salesSearchQuery]);
 
   const totalRevenue = filteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
   const totalOrders = filteredSales.filter(s => !s.is_refund).length;
@@ -136,7 +164,7 @@ export default function Reports({ session, settings }) {
 
   const dailyMap = {};
   filteredSales.forEach(s => {
-    const day = new Date(s.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+    const day = new Date(s.created_at || s.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
     if (!dailyMap[day]) dailyMap[day] = { orders: 0, revenue: 0 };
     dailyMap[day].orders += 1;
     dailyMap[day].revenue += s.total || 0;
@@ -145,22 +173,79 @@ export default function Reports({ session, settings }) {
   const maxDailyRev = Math.max(...dailyBreakdown.map(([, v]) => v.revenue), 1);
 
   // ── INVENTORY REPORT ──────────────────────────────────────────────────────
-  const totalStockValue = allProducts.reduce((sum, p) => sum + p.retail_price * p.stock_quantity, 0);
-  const totalWholesaleValue = allProducts.reduce((sum, p) => sum + (p.wholesale_price || 0) * p.stock_quantity, 0);
+  const totalStockValue = allProducts.reduce((sum, p) => sum + (parseFloat(p.retail_price) || 0) * (parseInt(p.stock_quantity, 10) || 0), 0);
+  const totalWholesaleValue = allProducts.reduce((sum, p) => sum + (parseFloat(p.wholesale_price) || 0) * (parseInt(p.stock_quantity, 10) || 0), 0);
   const potentialProfit = totalStockValue - totalWholesaleValue;
-  const lowStock = allProducts.filter(p => p.stock_quantity > 0 && p.stock_quantity <= 10);
-  const outOfStock = allProducts.filter(p => p.stock_quantity <= 0);
-  const goodStock = allProducts.filter(p => p.stock_quantity > 10);
+  const lowStock = allProducts.filter(p => (p.stock_quantity || 0) > 0 && (p.stock_quantity || 0) <= 10);
+  const outOfStock = allProducts.filter(p => (p.stock_quantity || 0) <= 0);
+  const goodStock = allProducts.filter(p => (p.stock_quantity || 0) > 10);
 
   const catStockMap = {};
   allProducts.forEach(p => {
-    const name = p.category_name || 'Uncategorised';
+    const name = (p.category_name || p.grade || p.class_name || 'General').toString().trim();
     if (!catStockMap[name]) catStockMap[name] = { count: 0, value: 0 };
-    catStockMap[name].count += p.stock_quantity;
-    catStockMap[name].value += p.retail_price * p.stock_quantity;
+    catStockMap[name].count += (parseInt(p.stock_quantity, 10) || 0);
+    catStockMap[name].value += (parseFloat(p.retail_price) || 0) * (parseInt(p.stock_quantity, 10) || 0);
   });
   const catStock = Object.entries(catStockMap).sort((a, b) => b[1].value - a[1].value);
   const maxCatValue = Math.max(...catStock.map(([, v]) => v.value), 1);
+
+  const invPublishers = useMemo(() => {
+    const set = new Set();
+    allProducts.forEach(p => { if (p && p.publisher && p.publisher.trim()) set.add(p.publisher.trim()); });
+    return Array.from(set).sort();
+  }, [allProducts]);
+
+  const invCategories = useMemo(() => {
+    const set = new Set();
+    allProducts.forEach(p => {
+      const c = (p.category_name || p.grade || p.class_name || '').toString().trim();
+      if (c && c.toLowerCase() !== 'general' && c.toLowerCase() !== 'uncategorized') set.add(c);
+    });
+    return Array.from(set).sort();
+  }, [allProducts]);
+
+  const filteredInventory = useMemo(() => {
+    return allProducts.filter(p => {
+      if (!p) return false;
+
+      // Status
+      if (invStatusFilter === 'low') {
+        if ((p.stock_quantity || 0) <= 0 || (p.stock_quantity || 0) > 10) return false;
+      } else if (invStatusFilter === 'out') {
+        if ((p.stock_quantity || 0) > 0) return false;
+      } else if (invStatusFilter === 'good') {
+        if ((p.stock_quantity || 0) <= 10) return false;
+      }
+
+      // Class / Category
+      if (invCategoryFilter !== 'all') {
+        const c = (p.category_name || p.grade || p.class_name || '').toString().trim().toLowerCase();
+        if (c !== invCategoryFilter.toLowerCase()) return false;
+      }
+
+      // Publisher
+      if (invPublisherFilter !== 'all') {
+        const pub = (p.publisher || '').trim().toLowerCase();
+        if (pub !== invPublisherFilter.toLowerCase()) return false;
+      }
+
+      // Search Query (combo)
+      if (invSearchQuery.trim()) {
+        const q = invSearchQuery.toLowerCase().trim();
+        const barcodeStr = String(p.barcode || '').toLowerCase();
+        if (barcodeStr && barcodeStr.includes(q)) return true;
+        const tokens = q.split(/\s+/).filter(Boolean);
+        const prodName = (p.product_name || '').toLowerCase();
+        const pub = (p.publisher || '').toLowerCase();
+        const cat = (p.category_name || p.grade || p.class_name || '').toLowerCase();
+        const combined = `${prodName} ${pub} ${cat} ${barcodeStr}`;
+        if (!tokens.every(t => combined.includes(t))) return false;
+      }
+
+      return true;
+    });
+  }, [allProducts, invStatusFilter, invCategoryFilter, invPublisherFilter, invSearchQuery]);
 
   // ── BORROWED BOOKS & SUPPLIER PAYOUTS ────────────────────────────────────
   const borrowedSalesData = useMemo(() => {
@@ -441,6 +526,422 @@ export default function Reports({ session, settings }) {
         </>
       )}
 
+      {/* ── SALES SUMMARY REPORT ────────────────────────────────────────── */}
+      {activeReport === 'sales' && (
+        <>
+          {/* Controls: Date Range, Payment Method & Search */}
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '0.35rem' }}>
+              {DATE_RANGES.map(r => (
+                <button
+                  key={r.key}
+                  onClick={() => setDateRange(r.key)}
+                  className="btn-secondary"
+                  style={{
+                    padding: '0.35rem 0.65rem',
+                    fontSize: '0.74rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: dateRange === r.key ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                    color: dateRange === r.key ? '#fff' : 'var(--text-muted)',
+                    borderColor: dateRange === r.key ? 'var(--primary)' : 'var(--border-light)',
+                    fontWeight: dateRange === r.key ? 700 : 500
+                  }}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+              {/* Payment Method Filter */}
+              <select
+                className="form-control"
+                value={salesPaymentMethod}
+                onChange={e => setSalesPaymentMethod(e.target.value)}
+                style={{ padding: '0.28rem 0.55rem', fontSize: '0.74rem', width: 'auto' }}
+              >
+                <option value="all">All Payments</option>
+                <option value="Cash">Cash Only</option>
+                <option value="Card">Card Only</option>
+                <option value="Mobile Transfer">Mobile Money</option>
+              </select>
+
+              {/* Search Orders Input */}
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <Search size={14} style={{ position: 'absolute', left: '8px', color: 'var(--text-subtle)' }} />
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search order #, customer, book..."
+                  value={salesSearchQuery}
+                  onChange={e => setSalesSearchQuery(e.target.value)}
+                  style={{ paddingLeft: '1.8rem', paddingRight: '0.6rem', fontSize: '0.74rem', width: '200px' }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Metric Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.65rem' }}>
+            <MetricCard
+              icon={<DollarSign size={18} color="var(--accent-emerald)" />}
+              bg="var(--accent-emerald-light)"
+              label="Total Revenue"
+              value={`GH₵${totalRevenue.toFixed(2)}`}
+              sub={`${totalOrders} completed orders`}
+              valueColor="var(--accent-emerald)"
+            />
+            <MetricCard
+              icon={<ShoppingBag size={18} color="var(--primary)" />}
+              bg="var(--primary-light)"
+              label="Total Orders"
+              value={totalOrders}
+              sub={`Avg: GH₵${avgOrder.toFixed(2)} / order`}
+              valueColor="var(--primary)"
+            />
+            <MetricCard
+              icon={<BookOpen size={18} color="var(--accent-purple)" />}
+              bg="hsla(265,83%,58%,0.12)"
+              label="Books Sold"
+              value={totalItems}
+              sub="total copies sold"
+              valueColor="var(--accent-purple)"
+            />
+            <MetricCard
+              icon={<TrendingUp size={18} color="var(--accent-amber)" />}
+              bg="var(--accent-amber-light)"
+              label="Average Order"
+              value={`GH₵${avgOrder.toFixed(2)}`}
+              sub="basket size"
+              valueColor="var(--accent-amber)"
+            />
+          </div>
+
+          {/* Payment Method Breakdown & Top Books Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.8rem' }}>
+            {/* Payment Methods */}
+            <div className="card-glass" style={{ padding: '0.9rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '0.65rem' }}>
+                Payment Methods Distribution
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {[
+                  { method: 'Cash', color: 'var(--accent-emerald)' },
+                  { method: 'Card', color: 'var(--primary)' },
+                  { method: 'Mobile Transfer', color: 'var(--accent-purple)' }
+                ].map(row => {
+                  const amt = paymentMethodMap[row.method] || 0;
+                  const pct = totalRevenue > 0 ? (amt / totalRevenue) * 100 : 0;
+                  return (
+                    <div key={row.method} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 600, width: '95px', flexShrink: 0 }}>{row.method}</span>
+                      <div style={{ flex: 1, height: '8px', background: 'var(--border-subtle)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: row.color, borderRadius: 'var(--radius-full)', transition: 'width 0.5s' }} />
+                      </div>
+                      <span style={{ fontWeight: 800, color: row.color, width: '80px', textAlign: 'right', flexShrink: 0 }}>
+                        GH₵{amt.toFixed(2)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Top Selling Books */}
+            <div className="card-glass" style={{ padding: '0.9rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '0.65rem', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Top Selling Titles</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>by volume</span>
+              </div>
+              {topBooks.length === 0 ? (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem 0' }}>No sales recorded in this period</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
+                  {topBooks.map((b, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', padding: '0.25rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', overflow: 'hidden' }}>
+                        <span style={{ fontWeight: 800, color: 'var(--primary)', width: '16px', flexShrink: 0 }}>#{idx + 1}</span>
+                        <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.6rem', flexShrink: 0 }}>
+                        <span style={{ fontWeight: 700 }}>{b.qty} sold</span>
+                        <span style={{ fontWeight: 800, color: 'var(--accent-emerald)' }}>GH₵{b.revenue.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Orders History Table */}
+          <div className="card-glass" style={{ padding: '0.9rem' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Sales Orders & Transactions ({displayedSales.length})</span>
+              {displayedSales.length !== filteredSales.length && (
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Filtered from {filteredSales.length} orders</span>
+              )}
+            </div>
+            {displayedSales.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                No orders match your filter criteria.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', maxHeight: '350px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-light)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                      <th style={{ padding: '0.35rem 0.5rem' }}>Order #</th>
+                      <th style={{ padding: '0.35rem 0.5rem' }}>Date & Time</th>
+                      <th style={{ padding: '0.35rem 0.5rem' }}>Customer / Staff</th>
+                      <th style={{ padding: '0.35rem 0.5rem' }}>Items</th>
+                      <th style={{ padding: '0.35rem 0.5rem' }}>Method</th>
+                      <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedSales.map((sale, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle)', background: sale.is_refund ? 'var(--accent-rose-light)' : 'transparent' }}>
+                        <td style={{ padding: '0.45rem 0.5rem', fontWeight: 700 }}>
+                          #{sale.order_id}
+                          {sale.is_refund && (
+                            <span style={{ marginLeft: '0.35rem', fontSize: '0.62rem', padding: '0.05rem 0.35rem', borderRadius: '999px', background: 'var(--accent-rose)', color: '#fff', fontWeight: 800 }}>REFUND</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '0.45rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                          {new Date(sale.created_at || sale.timestamp).toLocaleDateString()} {new Date(sale.created_at || sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td style={{ padding: '0.45rem 0.5rem' }}>
+                          <div style={{ fontWeight: 600 }}>{sale.customer_name || 'Walk-in Customer'}</div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Staff: {sale.cashier_name || 'Cashier'}</div>
+                        </td>
+                        <td style={{ padding: '0.45rem 0.5rem' }}>
+                          <div style={{ fontSize: '0.72rem', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {(sale.items || []).map(it => `${it.quantity}x ${it.product_name}`).join(', ')}
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.45rem 0.5rem' }}>
+                          <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)', fontWeight: 600 }}>
+                            {sale.payment_method || 'Cash'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, fontSize: '0.85rem', color: sale.is_refund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                          GH₵{(sale.total || 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── INVENTORY REPORT ─────────────────────────────────────────────── */}
+      {activeReport === 'inventory' && (
+        <>
+          {/* Controls: Stock Status Chips, Grade/Publisher Dropdowns & Search */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: '2px' }}>
+              <button
+                type="button"
+                className={`chip-pill ${invStatusFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setInvStatusFilter('all')}
+                style={{ fontSize: '0.74rem', padding: '0.3rem 0.65rem' }}
+              >
+                📦 All Books ({allProducts.length})
+              </button>
+              <button
+                type="button"
+                className={`chip-pill ${invStatusFilter === 'good' ? 'active' : ''}`}
+                onClick={() => setInvStatusFilter(invStatusFilter === 'good' ? 'all' : 'good')}
+                style={{ fontSize: '0.74rem', padding: '0.3rem 0.65rem' }}
+              >
+                🟢 Healthy Stock ({goodStock.length})
+              </button>
+              <button
+                type="button"
+                className={`chip-pill ${invStatusFilter === 'low' ? 'active' : ''}`}
+                onClick={() => setInvStatusFilter(invStatusFilter === 'low' ? 'all' : 'low')}
+                style={{ fontSize: '0.74rem', padding: '0.3rem 0.65rem' }}
+              >
+                ⚠️ Low Stock ({lowStock.length})
+              </button>
+              <button
+                type="button"
+                className={`chip-pill ${invStatusFilter === 'out' ? 'active' : ''}`}
+                onClick={() => setInvStatusFilter(invStatusFilter === 'out' ? 'all' : 'out')}
+                style={{ fontSize: '0.74rem', padding: '0.3rem 0.65rem' }}
+              >
+                🔴 Out of Stock ({outOfStock.length})
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Class / Category Dropdown */}
+              <select
+                className="form-control"
+                value={invCategoryFilter}
+                onChange={e => setInvCategoryFilter(e.target.value)}
+                style={{ padding: '0.3rem 0.6rem', fontSize: '0.76rem', minWidth: '130px', width: 'auto' }}
+              >
+                <option value="all">📚 All Classes / Categories ({invCategories.length})</option>
+                {invCategories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+
+              {/* Publisher Dropdown */}
+              <select
+                className="form-control"
+                value={invPublisherFilter}
+                onChange={e => setInvPublisherFilter(e.target.value)}
+                style={{ padding: '0.3rem 0.6rem', fontSize: '0.76rem', minWidth: '130px', width: 'auto' }}
+              >
+                <option value="all">🏢 All Publishers ({invPublishers.length})</option>
+                {invPublishers.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+
+              {/* Combo Search Input */}
+              <div style={{ position: 'relative', flex: '1 1 200px', display: 'flex', alignItems: 'center' }}>
+                <Search size={15} style={{ position: 'absolute', left: '10px', color: 'var(--text-subtle)' }} />
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search combo (title, class, publisher, ISBN)..."
+                  value={invSearchQuery}
+                  onChange={e => setInvSearchQuery(e.target.value)}
+                  style={{ width: '100%', paddingLeft: '2rem', fontSize: '0.78rem' }}
+                />
+              </div>
+
+              {(invCategoryFilter !== 'all' || invPublisherFilter !== 'all' || invStatusFilter !== 'all' || invSearchQuery) && (
+                <button
+                  type="button"
+                  onClick={() => { setInvCategoryFilter('all'); setInvPublisherFilter('all'); setInvStatusFilter('all'); setInvSearchQuery(''); }}
+                  style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.3rem 0.6rem', borderRadius: 'var(--radius-sm)', background: 'var(--accent-rose-light)', color: 'var(--accent-rose)', border: '1px solid var(--accent-rose)', cursor: 'pointer' }}
+                >
+                  Reset Filters
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Metric Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.65rem' }}>
+            <MetricCard
+              icon={<DollarSign size={18} color="var(--accent-emerald)" />}
+              bg="var(--accent-emerald-light)"
+              label="Retail Inventory Value"
+              value={`GH₵${totalStockValue.toFixed(2)}`}
+              sub="Potential gross earnings"
+              valueColor="var(--accent-emerald)"
+            />
+            <MetricCard
+              icon={<Package size={18} color="var(--primary)" />}
+              bg="var(--primary-light)"
+              label="Wholesale Cost Value"
+              value={`GH₵${totalWholesaleValue.toFixed(2)}`}
+              sub="Store purchase investment"
+              valueColor="var(--primary)"
+            />
+            <MetricCard
+              icon={<TrendingUp size={18} color="var(--accent-purple)" />}
+              bg="hsla(265,83%,58%,0.12)"
+              label="Projected Gross Profit"
+              value={`GH₵${potentialProfit.toFixed(2)}`}
+              sub={`${totalStockValue > 0 ? ((potentialProfit / totalStockValue) * 100).toFixed(1) : 0}% potential margin`}
+              valueColor="var(--accent-purple)"
+            />
+            <MetricCard
+              icon={<AlertTriangle size={18} color="var(--accent-rose)" />}
+              bg="var(--accent-rose-light)"
+              label="Items to Reorder"
+              value={lowStock.length + outOfStock.length}
+              sub={`${lowStock.length} low · ${outOfStock.length} out of stock`}
+              valueColor="var(--accent-rose)"
+            />
+          </div>
+
+          {/* Inventory Table */}
+          <div className="card-glass" style={{ padding: '0.9rem' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Inventory Stock List ({filteredInventory.length} titles)</span>
+              {filteredInventory.length !== allProducts.length && (
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Filtered from {allProducts.length} total</span>
+              )}
+            </div>
+            {filteredInventory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                No books match your filter criteria.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', maxHeight: '420px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-light)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                      <th style={{ padding: '0.35rem 0.5rem' }}>Book Title & Publisher</th>
+                      <th style={{ padding: '0.35rem 0.5rem' }}>Class / Subject</th>
+                      <th style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>Stock Level</th>
+                      <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Retail Price</th>
+                      <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Cost Price</th>
+                      <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Total Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredInventory.map(prod => {
+                      const qty = parseInt(prod.stock_quantity, 10) || 0;
+                      const rPrice = parseFloat(prod.retail_price) || 0;
+                      const wPrice = parseFloat(prod.wholesale_price) || 0;
+                      const lineVal = rPrice * qty;
+                      const isLow = qty > 0 && qty <= 10;
+                      const isOut = qty <= 0;
+
+                      return (
+                        <tr key={prod.id} style={{ borderBottom: '1px solid var(--border-subtle)', background: isOut ? 'rgba(239, 68, 68, 0.04)' : isLow ? 'rgba(245, 158, 11, 0.04)' : 'transparent' }}>
+                          <td style={{ padding: '0.45rem 0.5rem' }}>
+                            <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{prod.product_name}</div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                              {prod.publisher && <span>🏢 {prod.publisher} • </span>}
+                              {prod.barcode && <span>ISBN: {prod.barcode}</span>}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem' }}>
+                            <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-sm)', background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 700 }}>
+                              {prod.category_name || prod.grade || prod.class_name || 'General'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center' }}>
+                            <span style={{
+                              fontSize: '0.68rem',
+                              fontWeight: 800,
+                              padding: '0.12rem 0.45rem',
+                              borderRadius: 'var(--radius-full)',
+                              background: isOut ? 'var(--accent-rose-light)' : isLow ? 'var(--accent-amber-light)' : 'var(--accent-emerald-light)',
+                              color: isOut ? 'var(--accent-rose)' : isLow ? 'hsl(35, 90%, 25%)' : 'var(--accent-emerald)'
+                            }}>
+                              {qty} in stock {isOut ? '(Out)' : isLow ? '(Low)' : ''}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 700 }}>
+                            GH₵{rPrice.toFixed(2)}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', color: 'var(--text-muted)' }}>
+                            GH₵{wPrice.toFixed(2)}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, color: 'var(--accent-emerald)' }}>
+                            GH₵{lineVal.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {/* ── BORROWED BOOKS & SUPPLIER PAYOUTS REPORT ─────────────────────── */}
       {activeReport === 'borrowed' && (
         <>
@@ -467,23 +968,21 @@ export default function Reports({ session, settings }) {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-              {/* Supplier Filter Dropdown */}
-              {borrowedSalesData.supplierList.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Filter Lender:</span>
-                  <select
-                    className="form-control"
-                    value={borrowSupplierFilter}
-                    onChange={e => setBorrowSupplierFilter(e.target.value)}
-                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.74rem', width: 'auto' }}
-                  >
-                    <option value="all">All Lenders / Suppliers ({borrowedSalesData.supplierList.length})</option>
-                    {borrowedSalesData.supplierList.map(s => (
-                      <option key={s.supplier} value={s.supplier}>{s.supplier}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* Supplier Filter Dropdown - ALWAYS VISIBLE */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Filter Lender:</span>
+                <select
+                  className="form-control"
+                  value={borrowSupplierFilter}
+                  onChange={e => setBorrowSupplierFilter(e.target.value)}
+                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.74rem', width: 'auto' }}
+                >
+                  <option value="all">All Lenders / Suppliers ({borrowedSalesData.supplierList.length})</option>
+                  {borrowedSalesData.supplierList.map(s => (
+                    <option key={s.supplier} value={s.supplier}>{s.supplier}</option>
+                  ))}
+                </select>
+              </div>
 
               {/* Print Debt Sheet button */}
               <button

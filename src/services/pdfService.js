@@ -262,6 +262,53 @@ export function downloadReceiptPDF(order, settings = {}) {
 }
 
 /**
+/**
+ * Format complete, beautiful WhatsApp receipt text with items and online PDF download link
+ */
+export function formatWhatsAppReceiptText(order, settings = {}, receiptUrl = '') {
+  const currencySymbol = settings.currency_symbol || 'GH₵';
+  const total = Number(order.total || 0).toFixed(2);
+  const subtotal = Number(order.subtotal || 0).toFixed(2);
+  const storeName = settings.store_name || 'Brushwell Books';
+  const custName = order.customer_name || 'Walk-in Customer';
+  const dateStr = new Date(order.created_at || order.timestamp || Date.now()).toLocaleString();
+
+  const itemsList = (order.items || []).map((item, idx) => {
+    const itemTotal = ((parseFloat(item.price) || 0) * (parseInt(item.quantity, 10) || 1)).toFixed(2);
+    return `  ${idx + 1}. *${item.product_name}* (x${item.quantity}) — ${currencySymbol}${itemTotal}`;
+  }).join('\n');
+
+  let text = `🧾 *OFFICIAL SALES RECEIPT #${order.order_id}*\n` +
+    `*${storeName}*\n` +
+    `═══════════════════════\n` +
+    `👤 *Customer:* ${custName}\n` +
+    `📅 *Date:* ${dateStr}\n` +
+    `💳 *Payment:* ${order.payment_method || 'Cash'}\n` +
+    `═══════════════════════\n` +
+    `*ITEMS PURCHASED:*\n${itemsList || '  1. Books & Supplies'}\n` +
+    `═══════════════════════\n` +
+    `Subtotal: ${currencySymbol}${subtotal}\n`;
+
+  if (order.discount > 0) {
+    text += `Discount: -${currencySymbol}${Number(order.discount).toFixed(2)}\n`;
+  }
+  if (order.apply_tax || order.tax_applied) {
+    const taxAmt = Number(order.tax_total || order.tax_amount || 0).toFixed(2);
+    if (taxAmt > 0) text += `Tax / VAT: +${currencySymbol}${taxAmt}\n`;
+  }
+
+  text += `*TOTAL PAID: ${currencySymbol}${total}*\n` +
+    `═══════════════════════\n`;
+
+  if (receiptUrl) {
+    text += `📄 *Download Official PDF Receipt:*\n${receiptUrl}\n\n`;
+  }
+
+  text += `_Thank you for shopping with ${storeName}!_`;
+  return text;
+}
+
+/**
  * Share Receipt PDF via WhatsApp
  * 1. Checks if Web Share API with files is supported (mobile browsers like Chrome/Edge on Android, Safari iOS)
  * 2. If supported, triggers native share with the PDF file attached directly
@@ -270,28 +317,21 @@ export function downloadReceiptPDF(order, settings = {}) {
 export async function shareReceiptPDFViaWhatsApp(order, settings = {}, targetPhone = '') {
   const { file, filename } = generateReceiptPDFBlob(order, settings);
   const cleanPhone = formatWhatsAppPhone(targetPhone || order.customer_phone);
-
-  const currencySymbol = settings.currency_symbol || 'GH₵';
-  const total = Number(order.total || 0).toFixed(2);
   const storeName = settings.store_name || 'Brushwell Books';
 
-  const shareText = `🧾 *PDF RECEIPT #${order.order_id}*\n*${storeName}*\n\n` +
-    `Hello ${order.customer_name || 'Valued Customer'},\n` +
-    `Thank you for your purchase of *${currencySymbol}${total}*.\n` +
-    `Your official PDF sales receipt is ready.\n\n` +
-    `_Brushwell POS Digital Receipt_`;
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '';
+  const receiptUrl = baseUrl ? `${baseUrl}?receipt=${order.order_id}` : '';
+
+  const shareText = formatWhatsAppReceiptText(order, settings, receiptUrl);
 
   // 1. Try Native Web Share API with the PDF file (works on Android & iOS mobile devices)
-  // IMPORTANT: Do NOT include 'text' alongside 'files' — on WhatsApp Android the presence of
-  // both causes the share intent to send text-only and silently drop the PDF attachment.
   if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({
         files: [file],
-        title: `Receipt #${order.order_id} - ${storeName}`
-        // ⚠️ No 'text' here — WhatsApp discards the PDF file when text is also present
+        title: `Receipt_${order.order_id}.pdf`
       });
-      return { success: true, method: 'native_share' };
+      return { success: true, method: 'native_share', filename, receiptUrl };
     } catch (err) {
       if (err.name === 'AbortError') {
         return { success: false, aborted: true };
@@ -310,5 +350,5 @@ export async function shareReceiptPDFViaWhatsApp(order, settings = {}, targetPho
 
   window.open(whatsappUrl, '_blank');
 
-  return { success: true, method: 'download_and_chat' };
+  return { success: true, method: 'download_and_chat', filename, receiptUrl };
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Printer, Bluetooth, Share2, Check, MessageSquare, Phone, Home, ArrowLeft, FileText, Download } from 'lucide-react';
+import { X, Printer, Bluetooth, Share2, Check, MessageSquare, Phone, Home, ArrowLeft, FileText, Download, Link2, ExternalLink } from 'lucide-react';
 import { printBluetoothReceipt, printSystemWebReceipt } from '../services/printerService';
 import { downloadReceiptPDF, shareReceiptPDFViaWhatsApp, formatWhatsAppPhone } from '../services/pdfService';
 
@@ -48,18 +48,29 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
     try {
       const res = await shareReceiptPDFViaWhatsApp(order, settings, phoneInput);
       if (res.method === 'native_share') {
-        setPdfSuccessNotice('PDF Receipt shared via system share sheet!');
+        setPdfSuccessNotice('✅ PDF document attached via system share sheet!');
       } else {
-        setPdfSuccessNotice('PDF downloaded & WhatsApp chat opened!');
+        setPdfSuccessNotice('📄 PDF downloaded & WhatsApp chat opened! (Drag PDF into chat to attach file)');
       }
-      setTimeout(() => setPdfSuccessNotice(''), 4000);
+      setTimeout(() => setPdfSuccessNotice(''), 6000);
     } catch (err) {
       console.error('Failed to share PDF receipt:', err);
-      // Fallback
       downloadReceiptPDF(order, settings);
+      setPdfSuccessNotice('PDF downloaded to device.');
+      setTimeout(() => setPdfSuccessNotice(''), 4000);
     } finally {
       setIsSharingPdf(false);
     }
+  };
+
+  const handleCopyReceiptLink = () => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '';
+    const receiptUrl = `${baseUrl}?receipt=${order.order_id}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(receiptUrl);
+    }
+    setPdfSuccessNotice('🔗 Online Receipt link copied to clipboard!');
+    setTimeout(() => setPdfSuccessNotice(''), 4000);
   };
 
   const generateReceiptText = () => {
@@ -249,6 +260,10 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
                   <MessageSquare size={16} /> {isSharingPdf ? 'Sharing...' : 'Share PDF'}
                 </button>
               </div>
+              <div style={{ fontSize: '0.69rem', color: 'var(--text-muted)', lineHeight: '1.3', padding: '0.15rem 0.2rem' }}>
+                💡 <b>Desktop:</b> PDF is saved to Downloads & chat opens with online receipt link. Drag the downloaded PDF into WhatsApp to attach the file directly.<br/>
+                📱 <b>Mobile:</b> Opens WhatsApp with the official PDF document file attached directly.
+              </div>
             </div>
 
             {/* Direct PDF Download & Share Sheet Buttons */}
@@ -258,6 +273,7 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
                 className="btn-secondary"
                 onClick={handleDownloadPDF}
                 style={{ justifyContent: 'center', fontSize: '0.78rem', padding: '0.6rem 0.5rem', gap: '0.35rem' }}
+                title="Download official PDF to your device"
               >
                 <Download size={15} color="var(--primary)" /> Download PDF
               </button>
@@ -265,10 +281,11 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={handleShareText}
+                onClick={handleCopyReceiptLink}
                 style={{ justifyContent: 'center', fontSize: '0.78rem', padding: '0.6rem 0.5rem', gap: '0.35rem' }}
+                title="Copy public link to view and download this receipt online"
               >
-                <Share2 size={15} /> Copy Text
+                <Link2 size={15} /> Copy Receipt Link
               </button>
             </div>
 

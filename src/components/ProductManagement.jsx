@@ -134,6 +134,31 @@ export default function ProductManagement({
     product_image: ''
   });
 
+  // Helper to extract the Class / Grade from any product field
+  const getProductGrade = (p) => {
+    if (!p) return '';
+    const raw = (p.grade || p.class_name || p.level || p.category_name || p.category || '').toString().trim();
+    if (!raw || raw.toLowerCase() === 'general' || raw.toLowerCase() === 'uncategorized') return '';
+    return raw;
+  };
+
+  // Helper to expand educational level synonyms (e.g. "Class 3" <-> "Basic 3" <-> "BS 3" <-> "Stage 3")
+  const getGradeSynonyms = (text) => {
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    const matches = lower.match(/(?:class|grade|basic|book|primary|stage|bs|p|b|jhs|shs|kg|nursery)\s*([0-9]+)/gi);
+    if (!matches) return '';
+    const syns = [];
+    matches.forEach(m => {
+      const numMatch = m.match(/[0-9]+/);
+      if (numMatch) {
+        const n = numMatch[0];
+        syns.push(`class ${n}`, `book ${n}`, `basic ${n}`, `grade ${n}`, `primary ${n}`, `stage ${n}`, `bs ${n}`, `b${n}`, `p${n}`);
+      }
+    });
+    return syns.join(' ');
+  };
+
   // Derive unique publishers and grades from inventory
   const allPublishers = useMemo(() => {
     const set = new Set();
@@ -144,43 +169,61 @@ export default function ProductManagement({
   const allGrades = useMemo(() => {
     const set = new Set();
     safeProducts.forEach(p => {
-      const g = (p.grade || p.class_name || p.level || '').toString().trim();
-      if (g && g.toLowerCase() !== 'general' && g.toLowerCase() !== 'uncategorized') set.add(g);
+      const g = getProductGrade(p);
+      if (g) set.add(g);
     });
     return Array.from(set).sort();
   }, [safeProducts]);
 
-  // Filtered Products
+  // Filtered Products with Smart Combo Search & Filters
   const filteredProducts = useMemo(() => {
     return safeProducts.filter(p => {
       if (!p) return false;
-      const matchesQuery = !searchQuery || 
-                           (p.product_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           (p.barcode && String(p.barcode).includes(searchQuery)) ||
-                           (p.publisher && String(p.publisher).toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesCat = selectedCat === 'all' || p.category_id === selectedCat || p.category_name === selectedCat;
 
-      if (!matchesQuery || !matchesCat) return false;
-
-      // Grade filter
-      if (selectedGrade !== 'all') {
-        const g = (p.grade || p.class_name || p.level || '').toString().trim();
-        if (g.toLowerCase() !== selectedGrade.toLowerCase()) return false;
+      // Status chip filter
+      if (filterType === 'low_stock') {
+        if ((p.stock_quantity || 0) > 10) return false;
+      }
+      if (filterType === 'expiring') {
+        if (!p.expiry_date) return false;
+        const days = (new Date(p.expiry_date) - new Date()) / (1000 * 60 * 60 * 24);
+        if (days > 30) return false;
       }
 
-      // Publisher filter
+      // Category chip filter
+      const matchesCat = selectedCat === 'all' || p.category_id === selectedCat || p.category_name === selectedCat;
+      if (!matchesCat) return false;
+
+      // Grade / Class dropdown filter
+      if (selectedGrade !== 'all') {
+        const pg = getProductGrade(p);
+        if (!pg || pg.toLowerCase() !== selectedGrade.toLowerCase()) return false;
+      }
+
+      // Publisher dropdown filter
       if (selectedPublisher !== 'all') {
         const pp = (p.publisher || '').trim().toLowerCase();
         if (pp !== selectedPublisher.toLowerCase()) return false;
       }
 
-      if (filterType === 'low_stock') {
-        return (p.stock_quantity || 0) <= 10;
-      }
-      if (filterType === 'expiring') {
-        if (!p.expiry_date) return false;
-        const days = (new Date(p.expiry_date) - new Date()) / (1000 * 60 * 60 * 24);
-        return days <= 30;
+      // Smart Combo Search (product name + class + publisher + author + barcode)
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase().trim();
+        const barcodeStr = String(p.barcode || '').toLowerCase();
+        if (barcodeStr && barcodeStr.includes(q)) {
+          return true;
+        }
+        const qTokens = q.split(/\s+/).filter(Boolean);
+        const prodName = (p.product_name || '').toLowerCase();
+        const publisher = (p.publisher || '').toLowerCase();
+        const author = (p.author || '').toLowerCase();
+        const cat = (p.category_name || '').toLowerCase();
+        const grade = getProductGrade(p).toLowerCase();
+        const gradeSyns = getGradeSynonyms(`${prodName} ${grade} ${cat}`);
+        const fullSearchable = `${prodName} ${publisher} ${author} ${cat} ${grade} ${gradeSyns} ${barcodeStr}`;
+
+        const allTokensMatch = qTokens.every(token => fullSearchable.includes(token));
+        if (!allTokensMatch) return false;
       }
 
       return true;
@@ -260,10 +303,10 @@ export default function ProductManagement({
       String(p.barcode).trim().toLowerCase() === trimmed.toLowerCase()
     );
     if (duplicate) {
-      const confirmReassign = window.confirm(
-        `Barcode "${trimmed}" is already assigned to "${duplicate.product_name}". Do you still want to assign it to "${targetProduct.product_name}"?`
+      const confirmShare = window.confirm(
+        `Barcode "${trimmed}" is currently shared with "${duplicate.product_name}".\n\nWould you like "${targetProduct.product_name}" to also share this barcode? (The POS will automatically let you pick the subject whenever this barcode is scanned).`
       );
-      if (!confirmReassign) return;
+      if (!confirmShare) return;
     }
 
     setIsSubmitting(true);
@@ -709,7 +752,7 @@ export default function ProductManagement({
         <input 
           type="text"
           className="form-control"
-          placeholder="Search by title, author, category or ISBN barcode..."
+          placeholder="Search combo (e.g. Oxford Basic 3 Maths, title, publisher, class, ISBN)..."
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           style={{ paddingLeft: '2.4rem', paddingRight: '2.8rem', fontSize: '0.88rem' }}

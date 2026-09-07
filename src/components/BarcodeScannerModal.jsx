@@ -10,6 +10,7 @@ import {
   playBeep,
   decodeBarcodeFromImageOrCanvas
 } from '../services/barcodeScannerService';
+import BarcodeDisambiguationModal from './BarcodeDisambiguationModal';
 
 export default function BarcodeScannerModal({ 
   isOpen, 
@@ -23,6 +24,7 @@ export default function BarcodeScannerModal({
   const [manualCode, setManualCode]                   = useState('');
   const [continuousMode, setContinuousMode]           = useState(false);
   const [soundEnabled, setSoundEnabled]               = useState(true);
+  const [disambigData, setDisambigData]               = useState(null);
   const [lastScanned, setLastScanned]                 = useState(null);
   const [scanError, setScanError]                     = useState(null);
   const [isCameraReady, setIsCameraReady]             = useState(false);
@@ -114,15 +116,22 @@ export default function BarcodeScannerModal({
       if (isMountedRef.current) setScanFlash(false);
     }, 400);
 
-    // 3. Match product
-    const match = (Array.isArray(products) ? products : [])
+    // 3. Match product (find all matches to support shared barcodes)
+    const matches = (Array.isArray(products) ? products : [])
       .filter(Boolean)
-      .find(p => {
+      .filter(p => {
         const pCode = String(p.barcode || '').trim().toLowerCase();
         const pId = p.id ? String(p.id).trim().toLowerCase() : '';
         const target = trimmed.toLowerCase();
         return pCode === target || pId === target;
       });
+
+    if (matches.length > 1) {
+      setDisambigData({ barcode: trimmed, matches });
+      return;
+    }
+
+    const match = matches[0] || null;
 
     setLastScanned({ 
       code: trimmed, 
@@ -170,21 +179,35 @@ export default function BarcodeScannerModal({
         }
       }
 
-      // 2. Build constraints with mobile/iOS optimizations
-      const constraints = {
-        video: targetCameraId
-          ? { deviceId: { exact: targetCameraId } }
-          : {
-              facingMode: { ideal: mode },
-              width:  { ideal: 1280, min: 640 },
-              height: { ideal: 720,  min: 480 }
-            },
-        audio: false
-      };
+      // 2. Build constraints with mobile/iOS optimizations with progressive fallback
+      let stream = null;
+      try {
+        const constraints = {
+          video: targetCameraId
+            ? { deviceId: { exact: targetCameraId } }
+            : {
+                facingMode: { ideal: mode },
+                width:  { ideal: 1280 },
+                height: { ideal: 720 }
+              },
+          audio: false
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (firstErr) {
+        console.warn('[BarcodeScannerModal] High-res constraints failed, trying basic mobile constraints:', firstErr);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: targetCameraId ? { deviceId: { exact: targetCameraId } } : { facingMode: mode ? { ideal: mode } : 'environment' },
+            audio: false
+          });
+        } catch (secondErr) {
+          console.warn('[BarcodeScannerModal] Facing constraints failed, trying base video:', secondErr);
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       if (!isMountedRef.current) {
-        stream.getTracks().forEach(t => t.stop());
+        if (stream) stream.getTracks().forEach(t => t.stop());
         return;
       }
 
@@ -1003,6 +1026,27 @@ export default function BarcodeScannerModal({
 
         </div>
       </div>
+
+      <BarcodeDisambiguationModal
+        isOpen={Boolean(disambigData)}
+        barcode={disambigData?.barcode || ''}
+        matchingProducts={disambigData?.matches || []}
+        onSelectProduct={(product) => {
+          setLastScanned({ 
+            code: disambigData?.barcode || '', 
+            product: product, 
+            time: new Date().toLocaleTimeString() 
+          });
+          if (onScanSuccessRef.current) {
+            onScanSuccessRef.current(disambigData?.barcode || '', product);
+          }
+          setDisambigData(null);
+          if (!continuousModeRef.current && onCloseRef.current) {
+            onCloseRef.current();
+          }
+        }}
+        onClose={() => setDisambigData(null)}
+      />
     </div>
   );
 }

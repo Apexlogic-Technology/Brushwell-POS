@@ -16,6 +16,8 @@ import OrderHistoryModal from './components/OrderHistoryModal';
 import RefundModal from './components/RefundModal';
 import OutboundLoansModal from './components/OutboundLoansModal';
 import HeldOrdersDrawer from './components/HeldOrdersDrawer';
+import BarcodeDisambiguationModal from './components/BarcodeDisambiguationModal';
+import PublicReceiptViewer from './components/PublicReceiptViewer';
 
 import { fetchProducts, getSettings, fetchOutboundLoans } from './services/supabaseService';
 import { initHardwareBarcodeListener } from './services/barcodeScannerService';
@@ -59,6 +61,7 @@ export default function App() {
   const [outboundLoansCount, setOutboundLoansCount] = useState(0);
   const [lastOrder, setLastOrder] = useState(null);
   const [prefilledBarcode, setPrefilledBarcode] = useState(null);
+  const [disambigData, setDisambigData] = useState(null);
 
   // ─── Held Orders (multi-customer support) ─────────────────────────────────
   // Each held order: { id, label, cart, priceMode, createdAt }
@@ -220,12 +223,16 @@ export default function App() {
     if (!session) return;
     const cleanup = initHardwareBarcodeListener((code) => {
       const cleanCode = (code || '').trim().toLowerCase();
-      const matched = products.find(p => 
-        (p.barcode || '').trim().toLowerCase() === cleanCode ||
-        String(p.id || '').trim().toLowerCase() === cleanCode
-      );
-      if (matched) {
-        handleScanResult(code, matched);
+      const matches = (Array.isArray(products) ? products : []).filter(p => {
+        if (!p) return false;
+        const b = String(p.barcode || '').trim().toLowerCase();
+        const id = String(p.id || '').trim().toLowerCase();
+        return b === cleanCode || id === cleanCode;
+      });
+      if (matches.length === 1) {
+        handleScanResult(code, matches[0]);
+      } else if (matches.length > 1) {
+        setDisambigData({ barcode: code, matches });
       }
     });
     return cleanup;
@@ -257,6 +264,28 @@ export default function App() {
     setSettings(newSettings);
     loadData();
   };
+
+  // Public Receipt Viewer: allows customers or cashiers to view/download receipts directly without POS login
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const hash = typeof window !== 'undefined' ? window.location.hash : '';
+  let publicReceiptId = urlParams ? (urlParams.get('receipt') || urlParams.get('order')) : null;
+  if (!publicReceiptId && hash) {
+    const hashMatch = hash.match(/(?:receipt|order)[=/]([a-zA-Z0-9_-]+)/i);
+    if (hashMatch) publicReceiptId = hashMatch[1];
+  }
+
+  if (publicReceiptId) {
+    return (
+      <div data-theme={theme}>
+        <PublicReceiptViewer
+          orderId={publicReceiptId}
+          onGoToPos={() => {
+            window.location.href = window.location.origin + window.location.pathname;
+          }}
+        />
+      </div>
+    );
+  }
 
   if (!session) {
     return (
@@ -597,6 +626,17 @@ export default function App() {
         onHoldCurrent={(priceMode) => holdCurrentCart(cart, priceMode)}
         hasActiveCart={cart.length > 0}
         currencySymbol={settings.currency_symbol || 'GH₵'}
+      />
+      <BarcodeDisambiguationModal
+        isOpen={Boolean(disambigData)}
+        barcode={disambigData?.barcode || ''}
+        matchingProducts={disambigData?.matches || []}
+        onSelectProduct={(product) => {
+          handleScanResult(disambigData?.barcode || '', product);
+          setDisambigData(null);
+        }}
+        onClose={() => setDisambigData(null)}
+        currencySymbol={settings?.currency_symbol || 'GH₵'}
       />
     </div>
   );

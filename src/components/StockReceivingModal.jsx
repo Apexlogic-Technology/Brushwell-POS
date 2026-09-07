@@ -9,10 +9,17 @@ export default function StockReceivingModal({ isOpen, onClose, products, onRefre
 
   if (!isOpen) return null;
 
-  const matchedProducts = products.filter(p => 
-    p.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.barcode && p.barcode.includes(searchQuery))
-  );
+  const matchedProducts = products.filter(p => {
+    if (!searchQuery.trim()) return false;
+    const q = searchQuery.toLowerCase().trim();
+    if (p.barcode && String(p.barcode).toLowerCase().includes(q)) return true;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const prodName = (p.product_name || '').toLowerCase();
+    const pub = (p.publisher || '').toLowerCase();
+    const cat = (p.category_name || p.grade || p.class_name || '').toLowerCase();
+    const combined = `${prodName} ${pub} ${cat} ${String(p.barcode || '')}`;
+    return tokens.every(token => combined.includes(token));
+  });
 
   const addItemToRestock = (product) => {
     const existing = restockList.find(r => r.id === product.id);

@@ -153,10 +153,11 @@ export default function SellingInterface({
       const publisher = (p.publisher || '').toLowerCase();
       const author = (p.author || '').toLowerCase();
       const category = (p.category_name || '').toLowerCase();
+      const prodGrade = getProductGrade(p).toLowerCase();
       const barcode = String(p.barcode || '').toLowerCase();
-      const gradeSynonyms = getGradeSynonyms(`${prodName} ${category}`);
+      const gradeSynonyms = getGradeSynonyms(`${prodName} ${prodGrade} ${category}`);
 
-      const fullSearchable = `${prodName} ${publisher} ${author} ${category} ${gradeSynonyms} ${barcode}`;
+      const fullSearchable = `${prodName} ${publisher} ${author} ${category} ${prodGrade} ${gradeSynonyms} ${barcode}`;
       const allTokensMatch = qTokens.every(token => fullSearchable.includes(token));
       const barcodeMatch = barcode.includes(q);
 
@@ -641,7 +642,7 @@ export default function SellingInterface({
                 <input 
                   type="text" 
                   className="form-control"
-                  placeholder="Search title, author or ISBN..."
+                  placeholder="Search combo (e.g. Oxford Basic 3 Maths, title, class, ISBN)..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   style={{ 

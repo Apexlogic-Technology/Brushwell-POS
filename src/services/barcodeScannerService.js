@@ -222,6 +222,10 @@ export async function detectFromVideoFrame(videoOrCanvas) {
 export async function decodeLiveVideoFrameFast(video) {
   if (!video || video.readyState < 2 || !video.videoWidth || video.paused) return null;
 
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) return null;
+
   const { canvas, ctx } = getCropCanvas();
 
   // Always clear previous frame pixels to prevent any ghosting or sticky barcodes

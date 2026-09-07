@@ -425,6 +425,36 @@ export const fetchOrders = async ({ limit = 100, orderType = null, search = '' }
   return data || [];
 };
 
+export const fetchOrderById = async (orderId) => {
+  const client = getSupabaseClient();
+  if (!client || !orderId) return null;
+
+  try {
+    const { data, error } = await client
+      .from('orders')
+      .select('*')
+      .eq('order_id', orderId)
+      .maybeSingle();
+    if (!error && data) return data;
+  } catch (err) {
+    console.warn('fetchOrderById error:', err);
+  }
+
+  // Fallback search by partial or raw ID
+  try {
+    const { data: list } = await client
+      .from('orders')
+      .select('*')
+      .ilike('order_id', `%${orderId}%`)
+      .limit(1);
+    if (list && list.length > 0) return list[0];
+  } catch (err) {
+    console.warn('fetchOrderById fallback error:', err);
+  }
+
+  return null;
+};
+
 // ─── Stock Receiving ──────────────────────────────────────────────────────────
 export const receiveStock = async (restockItems) => {
   const client = getSupabaseClient();
