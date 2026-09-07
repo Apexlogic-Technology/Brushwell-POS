@@ -603,3 +603,130 @@ export const deleteOutboundLoan = async (id) => {
   const { error } = await client.from('outbound_loans').delete().eq('id', id);
   if (error) throw new Error(error.message);
 };
+
+// ─── Order Deletion (Admin only) ──────────────────────────────────────────────
+export const deleteOrder = async (orderId, { restoreStock = true } = {}) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  if (!orderId) throw new Error('No order ID provided');
+
+  // Optional: Restore product stock if not a refund and items exist
+  if (restoreStock) {
+    try {
+      const { data: order } = await client
+        .from('orders')
+        .select('*')
+        .eq('order_id', orderId)
+        .maybeSingle();
+
+      if (order && Array.isArray(order.items) && order.order_type !== 'refund') {
+        for (const item of order.items) {
+          if (!item || !item.id || item.is_borrowed) continue;
+          const { data: prod } = await client
+            .from('products')
+            .select('stock_quantity')
+            .eq('id', item.id)
+            .maybeSingle();
+
+          if (prod && typeof prod.stock_quantity === 'number') {
+            await client
+              .from('products')
+              .update({
+                stock_quantity: prod.stock_quantity + (parseInt(item.quantity, 10) || 1),
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', item.id);
+          }
+        }
+      }
+    } catch (stockErr) {
+      console.warn('Stock restoration warning before deleteOrder:', stockErr);
+    }
+  }
+
+  // Delete from orders table by order_id
+  const { error } = await client
+    .from('orders')
+    .delete()
+    .eq('order_id', orderId);
+
+  if (error) {
+    // Fallback: try by UUID id if order_id didn't match
+    const { error: fallbackErr } = await client
+      .from('orders')
+      .delete()
+      .eq('id', orderId);
+    if (fallbackErr) throw new Error(fallbackErr.message);
+  }
+
+  return { success: true, order_id: orderId };
+};
+
+// ─── Category & Publisher Bulk Operations ────────────────────────────────────
+export const renameCategoryInProducts = async (oldName, newName) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  if (!oldName || !newName || oldName.trim() === newName.trim()) return 0;
+
+  const { data, error } = await client
+    .from('products')
+    .update({ category_name: newName.trim(), updated_at: new Date().toISOString() })
+    .ilike('category_name', oldName.trim())
+    .select('id');
+
+  if (error) throw new Error('Failed to rename category in products: ' + error.message);
+  return data ? data.length : 0;
+};
+
+export const renamePublisherInProducts = async (oldName, newName) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  if (!oldName || !newName || oldName.trim() === newName.trim()) return 0;
+
+  const { data, error } = await client
+    .from('products')
+    .update({ publisher: newName.trim(), updated_at: new Date().toISOString() })
+    .ilike('publisher', oldName.trim())
+    .select('id');
+
+  if (error) throw new Error('Failed to rename publisher in products: ' + error.message);
+  return data ? data.length : 0;
+};
+
+// ─── Local Custom Categories & Publishers Persistence ─────────────────────────
+const CUSTOM_CATEGORIES_KEY = 'brushwell_custom_categories';
+const CUSTOM_PUBLISHERS_KEY = 'brushwell_custom_publishers';
+
+export const getCustomCategories = () => {
+  try {
+    const raw = localStorage.getItem(CUSTOM_CATEGORIES_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const saveCustomCategories = (categories) => {
+  try {
+    localStorage.setItem(CUSTOM_CATEGORIES_KEY, JSON.stringify(categories));
+  } catch (err) {
+    console.error('saveCustomCategories error:', err);
+  }
+};
+
+export const getCustomPublishers = () => {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PUBLISHERS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveCustomPublishers = (publishers) => {
+  try {
+    localStorage.setItem(CUSTOM_PUBLISHERS_KEY, JSON.stringify(publishers));
+  } catch (err) {
+    console.error('saveCustomPublishers error:', err);
+  }
+};

@@ -3,7 +3,8 @@ import * as XLSX from 'xlsx';
 import { 
   Package, Plus, Search, Edit3, Trash2, Barcode as BarcodeIcon, 
   Upload, Calendar, Tag, AlertCircle, Clock, RefreshCw, Check, Camera, Filter, 
-  FolderPlus, X, FileSpreadsheet, Loader, Download, LayoutGrid, List, Sliders, Zap
+  FolderPlus, X, FileSpreadsheet, Loader, Download, LayoutGrid, List, Sliders, Zap,
+  BookOpen, Layers
 } from 'lucide-react';
 import { 
   saveProduct as saveProductToDB, 
@@ -11,10 +12,13 @@ import {
   bulkImportProducts,
   bulkUpdateProducts,
   bulkDeleteProducts,
-  deleteAllProducts
+  deleteAllProducts,
+  getCustomCategories,
+  getCustomPublishers
 } from '../services/supabaseService';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import VisualSearchModal from './VisualSearchModal';
+import CategoryPublisherModal from './CategoryPublisherModal';
 
 const DEFAULT_CATEGORIES = [
   { id: 'cat-gh-1',  name: 'Crèche & Nursery (KG 1 - 2)' },
@@ -79,7 +83,9 @@ export default function ProductManagement({
 
   // Pagination & View Mode state
   const [visibleCount, setVisibleCount] = useState(40);
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('brushwell_pm_view_mode') || 'catalog'); // 'catalog' | 'grid' | 'table'
+  const [customCategoriesList, setCustomCategoriesList] = useState(() => getCustomCategories() || []);
+  const [isCatPubModalOpen, setIsCatPubModalOpen] = useState(false);
 
   // Bulk Edit state
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
@@ -105,6 +111,9 @@ export default function ProductManagement({
     safeCategories.forEach(c => {
       if (c && c.name) map.set(c.name.toLowerCase(), c);
     });
+    (customCategoriesList || []).forEach(c => {
+      if (c && c.name) map.set(c.name.toLowerCase(), c);
+    });
     safeProducts.forEach(p => {
       if (p && p.category_name && !map.has(p.category_name.toLowerCase())) {
         const id = p.category_id || 'cat-' + p.category_name.toLowerCase().replace(/\s+/g, '-');
@@ -113,7 +122,7 @@ export default function ProductManagement({
     });
     const result = Array.from(map.values());
     return result.length > 0 ? result : DEFAULT_CATEGORIES;
-  }, [safeCategories, safeProducts]);
+  }, [safeCategories, safeProducts, customCategoriesList]);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const lowStockCount = safeProducts.filter(p => p && (p.stock_quantity || 0) <= 10).length;
@@ -647,7 +656,19 @@ export default function ProductManagement({
             <span>Tools</span>
           </button>
 
-          {/* Grid / Table View Switcher */}
+          {/* Manage Categories & Publishers Button */}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setIsCatPubModalOpen(true)}
+            style={{ fontSize: '0.8rem', padding: '0.45rem 0.65rem', gap: '0.35rem' }}
+            title="Manage and Rename Categories & Publishers"
+          >
+            <Layers size={15} color="var(--accent-purple)" />
+            <span className="hide-mobile">Categories & Publishers</span>
+          </button>
+
+          {/* View Switcher: Catalog List vs Cards Grid vs Table */}
           <div style={{
             display: 'flex',
             background: 'var(--bg-surface-elevated)',
@@ -657,7 +678,23 @@ export default function ProductManagement({
           }}>
             <button
               type="button"
-              onClick={() => setViewMode('grid')}
+              onClick={() => { setViewMode('catalog'); localStorage.setItem('brushwell_pm_view_mode', 'catalog'); }}
+              style={{
+                padding: '0.35rem 0.55rem',
+                fontSize: '0.78rem',
+                borderRadius: 'var(--radius-sm)',
+                background: viewMode === 'catalog' ? 'var(--primary)' : 'transparent',
+                color: viewMode === 'catalog' ? '#fff' : 'var(--text-muted)',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+              title="Catalog List View (No scroll)"
+            >
+              <BookOpen size={15} />
+            </button>
+            <button
+              type="button"
+              onClick={() => { setViewMode('grid'); localStorage.setItem('brushwell_pm_view_mode', 'grid'); }}
               style={{
                 padding: '0.35rem 0.55rem',
                 fontSize: '0.78rem',
@@ -673,7 +710,7 @@ export default function ProductManagement({
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('table')}
+              onClick={() => { setViewMode('table'); localStorage.setItem('brushwell_pm_view_mode', 'table'); }}
               style={{
                 padding: '0.35rem 0.55rem',
                 fontSize: '0.78rem',
@@ -932,7 +969,144 @@ export default function ProductManagement({
 
       {/* Main Inventory Display: Cards Grid or Responsive Table */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        {viewMode === 'table' ? (
+        {viewMode === 'catalog' ? (
+          <div className="product-catalog-list">
+            {displayedProducts.map(product => {
+              const isLowStock = (product.stock_quantity || 0) <= 10;
+              const isSelected = selectedIds.has(product.id);
+
+              return (
+                <div
+                  key={product.id || Math.random()}
+                  className="product-catalog-item"
+                  style={{
+                    border: isSelected ? '1.5px solid var(--accent-purple)' : undefined,
+                    background: isSelected ? 'var(--primary-light)' : undefined
+                  }}
+                >
+                  {/* Left: Checkbox + Thumbnail + Title/Grade/Publisher/Category */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0, flex: '1 1 260px' }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelectProduct(product.id)}
+                      style={{ cursor: 'pointer', accentColor: 'var(--accent-purple)', width: '17px', height: '17px', flexShrink: 0 }}
+                    />
+
+                    <div style={{
+                      width: '36px', height: '36px', flexShrink: 0,
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--bg-surface-elevated)',
+                      border: '1px solid var(--border-light)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      {product.product_image ? (
+                        <img src={product.product_image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
+                      ) : (
+                        <BookOpen size={16} color="var(--primary)" />
+                      )}
+                    </div>
+
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.86rem', color: 'var(--text-main)', wordBreak: 'break-word' }}>
+                          {product.product_name || 'Untitled Book'}
+                        </span>
+
+                        {product.grade && (
+                          <span style={{
+                            fontSize: '0.7rem', fontWeight: 800, padding: '0.1rem 0.45rem',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'linear-gradient(135deg, var(--accent-purple), hsl(265,83%,45%))',
+                            color: '#ffffff', whiteSpace: 'nowrap'
+                          }}>
+                            {product.grade}
+                          </span>
+                        )}
+
+                        <span style={{
+                          fontSize: '0.66rem', fontWeight: 600, padding: '0.1rem 0.4rem',
+                          borderRadius: 'var(--radius-full)', background: 'var(--primary-light)',
+                          color: 'var(--primary)', whiteSpace: 'nowrap'
+                        }}>
+                          {product.category_name || 'General'}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap', marginTop: '2px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {product.publisher && (
+                          <span>Publisher: <b style={{ color: 'var(--text-main)' }}>{product.publisher}</b></span>
+                        )}
+                        {product.barcode && (
+                          <span style={{ fontFamily: 'monospace' }}>🏷️ {product.barcode}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Price + Stock + Action Icons */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <div style={{ textAlign: 'right', minWidth: '70px' }}>
+                      <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.92rem' }}>
+                        GH₵{parseFloat(product.retail_price || 0).toFixed(2)}
+                      </div>
+                      {product.wholesale_price && parseFloat(product.wholesale_price) > 0 && parseFloat(product.wholesale_price) !== parseFloat(product.retail_price) && (
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                          WS: GH₵{parseFloat(product.wholesale_price).toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+
+                    <span style={{
+                      fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+                      borderRadius: 'var(--radius-full)',
+                      background: isLowStock ? 'var(--accent-rose-light)' : 'var(--accent-emerald-light)',
+                      color: isLowStock ? 'var(--accent-rose)' : 'var(--accent-emerald)',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {product.stock_quantity || 0} in stock
+                    </span>
+
+                    <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        title="Scan or Print Barcode"
+                        onClick={() => {
+                          setBarcodeActionProduct(product);
+                          setBarcodeInputValue(product.barcode || '');
+                        }}
+                        style={{ width: '30px', height: '30px' }}
+                      >
+                        <BarcodeIcon size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        title="Edit Book Details"
+                        onClick={() => openFormModal(product)}
+                        style={{ width: '30px', height: '30px' }}
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          className="btn-icon"
+                          title="Delete Book"
+                          onClick={() => handleDelete(product.id)}
+                          style={{ width: '30px', height: '30px', color: 'var(--accent-rose)' }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : viewMode === 'table' ? (
           <div className="responsive-table-wrapper">
             <table className="responsive-table">
               <thead>
@@ -1796,7 +1970,22 @@ export default function ProductManagement({
         </div>
       )}
 
+      {/* Category & Publisher Management Modal */}
+      {isCatPubModalOpen && (
+        <CategoryPublisherModal
+          isOpen={isCatPubModalOpen}
+          onClose={() => setIsCatPubModalOpen(false)}
+          products={safeProducts}
+          categories={allCategories}
+          onCategoriesUpdated={(newCats) => {
+            setCustomCategoriesList(newCats);
+          }}
+          onRefreshProducts={onRefreshProducts}
+        />
+      )}
+
     </div>
   );
 }
+
 

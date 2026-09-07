@@ -3,9 +3,17 @@ import {
   BarChart2, TrendingUp, Package, AlertTriangle,
   DollarSign, ShoppingBag, Calendar, Printer,
   BookOpen, Filter, Clock, FileText, ChevronLeft, ChevronRight,
-  RotateCcw, FileSpreadsheet, Handshake, CheckCircle2, Check, Search
+  RotateCcw, FileSpreadsheet, Handshake, CheckCircle2, Check, Search,
+  Trash2, X
 } from 'lucide-react';
-import { fetchOrders, fetchProducts, updateOrderBorrowSettlement, fetchOutboundLoans, updateOutboundLoan } from '../services/supabaseService';
+import { 
+  fetchOrders, 
+  fetchProducts, 
+  updateOrderBorrowSettlement, 
+  fetchOutboundLoans, 
+  updateOutboundLoan,
+  deleteOrder 
+} from '../services/supabaseService';
 import RefundModal from './RefundModal';
 import ZReportModal from './ZReportModal';
 
@@ -58,6 +66,26 @@ export default function Reports({ session, settings }) {
   const [isRefundOpen, setIsRefundOpen] = useState(false);
   const [isZReportOpen, setIsZReportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Admin order deletion state
+  const isAdmin = session?.role === 'admin';
+  const [deletingOrderId, setDeletingOrderId] = useState(null);
+  const [isDeletingOrder, setIsDeletingOrder] = useState(false);
+
+  const handleConfirmDeleteOrder = async () => {
+    if (!deletingOrderId) return;
+    setIsDeletingOrder(true);
+    try {
+      await deleteOrder(deletingOrderId, { restoreStock: true });
+      setAllSales(prev => prev.filter(s => s.order_id !== deletingOrderId && String(s.id) !== String(deletingOrderId)));
+      setDeletingOrderId(null);
+      setRefreshTrigger(t => t + 1);
+    } catch (err) {
+      alert('Failed to delete order: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsDeletingOrder(false);
+    }
+  };
 
   const [allSales, setAllSales] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
@@ -394,31 +422,63 @@ export default function Reports({ session, settings }) {
         </div>
       </div>
 
-      {/* Report Type Toggle */}
-      <div style={{ display: 'flex', gap: '0.35rem', background: 'var(--bg-surface-elevated)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)', overflowX: 'auto' }}>
-        {[
-          { key: 'daily', label: 'Daily Sales', icon: FileText },
-          { key: 'sales', label: 'Sales Summary', icon: TrendingUp },
-          { key: 'inventory', label: 'Inventory', icon: Package },
-          { key: 'borrowed', label: '🤝 Borrowed In', icon: Handshake },
-          { key: 'outbound', label: '📤 Outbound Lent', icon: Package }
-        ].map(tab => {
-          const Icon = tab.icon;
-          const active = activeReport === tab.key;
-          return (
-            <button key={tab.key} onClick={() => setActiveReport(tab.key)} style={{
-              flex: 1, padding: '0.5rem 0.25rem',
-              borderRadius: 'var(--radius-sm)',
-              background: active ? 'var(--primary)' : 'transparent',
-              color: active ? '#fff' : 'var(--text-muted)',
-              fontSize: '0.75rem', fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem',
-              transition: 'all 0.15s', whiteSpace: 'nowrap'
-            }}>
-              <Icon size={14} />{tab.label}
-            </button>
-          );
-        })}
+      {/* Report Type Toggle — Sticky Header so tabs are never covered */}
+      <div style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 35,
+        background: 'var(--bg-app)',
+        paddingTop: '0.2rem',
+        paddingBottom: '0.4rem'
+      }}>
+        <div style={{
+          display: 'flex',
+          gap: '0.35rem',
+          background: 'var(--bg-surface-elevated)',
+          padding: '4px',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border-light)',
+          overflowX: 'auto',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.06)'
+        }}>
+          {[
+            { key: 'daily', label: 'Daily Sales', icon: FileText },
+            { key: 'sales', label: 'Sales Summary', icon: TrendingUp },
+            { key: 'inventory', label: 'Inventory', icon: Package },
+            { key: 'borrowed', label: '🤝 Borrowed In', icon: Handshake },
+            { key: 'outbound', label: '📤 Outbound Lent', icon: Package }
+          ].map(tab => {
+            const Icon = tab.icon;
+            const active = activeReport === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveReport(tab.key)}
+                style={{
+                  flex: '1 0 auto',
+                  minWidth: '105px',
+                  padding: '0.55rem 0.5rem',
+                  borderRadius: 'var(--radius-sm)',
+                  background: active ? 'var(--primary)' : 'transparent',
+                  color: active ? '#fff' : 'var(--text-muted)',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.35rem',
+                  transition: 'all 0.15s',
+                  whiteSpace: 'nowrap',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                <Icon size={14} />{tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* ── DAILY SALES REPORT ─────────────────────────────────────────── */}
@@ -487,36 +547,52 @@ export default function Reports({ session, settings }) {
           )}
 
           {dailySales.length > 0 && (
-            <div className="card-glass" style={{ padding: '0.9rem' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '0.6rem' }}>
-                All Transactions — {dailySales.length} record{dailySales.length !== 1 ? 's' : ''}
+            <div className="card-glass" style={{ padding: '0.9rem', marginBottom: '2.5rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>All Transactions — {dailySales.length} record{dailySales.length !== 1 ? 's' : ''}</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '280px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: '480px', overflowY: 'auto', paddingBottom: '2.5rem', paddingRight: '4px' }}>
                 {dailySales.map((sale, i) => (
                   <div key={i} style={{
                     background: sale.is_refund ? 'var(--accent-rose-light)' : 'var(--bg-surface-elevated)',
                     border: `1px solid ${sale.is_refund ? 'var(--accent-rose)' : 'var(--border-subtle)'}`,
-                    borderRadius: 'var(--radius-md)', padding: '0.6rem 0.75rem'
+                    borderRadius: 'var(--radius-md)', padding: '0.65rem 0.8rem'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                      <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>#{sale.order_id}</span>
                         {sale.is_refund && (
                           <span style={{
-                            marginLeft: '0.5rem', fontSize: '0.7rem', padding: '0.1rem 0.45rem',
+                            fontSize: '0.7rem', padding: '0.1rem 0.45rem',
                             borderRadius: 'var(--radius-full)', fontWeight: 700,
                             background: 'var(--accent-rose)', color: '#fff'
                           }}>REFUND</span>
                         )}
                       </div>
-                      <span style={{ fontWeight: 800, fontSize: '1rem', color: sale.is_refund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                        GH₵{sale.total.toFixed(2)}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                        <span style={{ fontWeight: 800, fontSize: '1rem', color: sale.is_refund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                          GH₵{sale.total.toFixed(2)}
+                        </span>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            onClick={() => setDeletingOrderId(sale.order_id)}
+                            title="Delete Order (Admin Only)"
+                            style={{ width: '28px', height: '28px', color: 'var(--accent-rose)' }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
                       <span>🕐 {new Date(sale.timestamp).toLocaleTimeString()}</span>
                       <span>💳 {sale.payment_method}</span>
                       <span>👤 {sale.cashier_name || 'Cashier'}</span>
+                      {sale.items && sale.items.length > 0 && (
+                        <span>📚 {sale.items.length} item{sale.items.length !== 1 ? 's' : ''}</span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -687,7 +763,7 @@ export default function Reports({ session, settings }) {
                 No orders match your filter criteria.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto', maxHeight: '350px' }}>
+              <div style={{ overflowX: 'auto', maxHeight: '450px', paddingBottom: '2rem' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border-light)', color: 'var(--text-muted)', textAlign: 'left' }}>
@@ -697,6 +773,7 @@ export default function Reports({ session, settings }) {
                       <th style={{ padding: '0.35rem 0.5rem' }}>Items</th>
                       <th style={{ padding: '0.35rem 0.5rem' }}>Method</th>
                       <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Total</th>
+                      {isAdmin && <th style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>Action</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -728,6 +805,19 @@ export default function Reports({ session, settings }) {
                         <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, fontSize: '0.85rem', color: sale.is_refund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
                           GH₵{(sale.total || 0).toFixed(2)}
                         </td>
+                        {isAdmin && (
+                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="btn-icon"
+                              onClick={() => setDeletingOrderId(sale.order_id)}
+                              title="Delete Order (Admin Only)"
+                              style={{ width: '26px', height: '26px', color: 'var(--accent-rose)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1457,6 +1547,50 @@ export default function Reports({ session, settings }) {
         settings={settings || { store_name: 'Brushwell Books' }}
         session={session}
       />
+
+      {/* Admin Order Delete Confirmation Modal */}
+      {deletingOrderId && (
+        <div className="modal-overlay" onClick={() => !isDeletingOrder && setDeletingOrderId(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '420px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--accent-rose)' }}>
+                <AlertTriangle size={20} />
+                <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Confirm Order Deletion</h3>
+              </div>
+              <button type="button" className="btn-icon" onClick={() => !isDeletingOrder && setDeletingOrderId(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ fontSize: '0.84rem', color: 'var(--text-main)', lineHeight: '1.4' }}>
+              Are you sure you want to permanently delete order <b>#{deletingOrderId}</b>?
+              <div style={{ marginTop: '0.65rem', padding: '0.5rem 0.75rem', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                • Record will be deleted from Supabase database.<br />
+                • Sold item quantities will be restored back into stock.<br />
+                • Financial totals and audit logs will immediately recalculate.
+              </div>
+            </div>
+            <div className="modal-footer" style={{ gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDeletingOrderId(null)}
+                disabled={isDeletingOrder}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={handleConfirmDeleteOrder}
+                disabled={isDeletingOrder}
+                style={{ background: 'var(--accent-rose)', color: '#fff' }}
+              >
+                {isDeletingOrder ? 'Deleting...' : 'Yes, Delete Order'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Search, Clock, Printer, RotateCcw, FileText, CheckCircle2, ChevronRight, Download, MessageSquare } from 'lucide-react';
-import { fetchOrders } from '../services/supabaseService';
+import { X, Search, Clock, Printer, RotateCcw, FileText, CheckCircle2, ChevronRight, Download, MessageSquare, Trash2 } from 'lucide-react';
+import { fetchOrders, deleteOrder } from '../services/supabaseService';
 import { downloadReceiptPDF, shareReceiptPDFViaWhatsApp } from '../services/pdfService';
 
 export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrder, onSelectRefundOrder, isAdmin, settings = {} }) {
@@ -247,6 +247,41 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                             }}
                           >
                             <RotateCcw size={14} /> Refund
+                          </button>
+                        )}
+
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            style={{
+                              padding: '0.35rem 0.6rem',
+                              fontSize: '0.78rem',
+                              gap: '0.3rem',
+                              background: '#fee2e2',
+                              color: '#dc2626',
+                              border: '1px solid #fecaca',
+                              borderRadius: 'var(--radius-sm)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              fontWeight: 700,
+                              marginLeft: 'auto'
+                            }}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const confirmMsg = `Are you sure you want to permanently delete Order #${order.order_id} (GH₵${order.total?.toFixed(2)})?\n\nThis will automatically restore stock for the books. This action cannot be undone.`;
+                              if (!window.confirm(confirmMsg)) return;
+                              try {
+                                await deleteOrder(order.order_id, { restoreStock: true });
+                                setSales(prev => prev.filter(s => s.order_id !== order.order_id));
+                                if (selectedOrder?.order_id === order.order_id) setSelectedOrder(null);
+                              } catch (err) {
+                                alert('Failed to delete order: ' + err.message);
+                              }
+                            }}
+                            title="Delete Order (Admin Only)"
+                          >
+                            <Trash2 size={14} /> Delete Order
                           </button>
                         )}
                       </div>
