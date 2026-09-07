@@ -440,15 +440,22 @@ export default function SellingInterface({
       ) : (
         <>
           {/* Controls Bar */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            
+            {/* Row 1: Fullscreen Scanner & Price Switcher */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              gap: '0.5rem',
+              flexWrap: 'wrap'
+            }}>
               {/* Switch to Camera Scanner Button */}
               <button
                 type="button"
                 onClick={() => handleSwitchSellMode('camera')}
                 style={{
-                  padding: '0.4rem 0.75rem',
+                  padding: '0.42rem 0.8rem',
                   fontSize: '0.78rem',
                   fontWeight: 700,
                   borderRadius: 'var(--radius-sm)',
@@ -476,193 +483,213 @@ export default function SellingInterface({
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--border-light)'
               }}>
-            <button
-              onClick={() => setPriceMode('retail')}
-              style={{
-                padding: '0.35rem 0.75rem',
-                fontSize: '0.78rem',
-                borderRadius: 'var(--radius-sm)',
-                background: priceMode === 'retail' ? 'var(--primary)' : 'transparent',
-                color: priceMode === 'retail' ? '#fff' : 'var(--text-muted)'
-              }}
-            >
-              Retail
-            </button>
-            <button
-              onClick={() => setPriceMode('wholesale')}
-              style={{
-                padding: '0.35rem 0.75rem',
-                fontSize: '0.78rem',
-                borderRadius: 'var(--radius-sm)',
-                background: priceMode === 'wholesale' ? 'var(--accent-purple)' : 'transparent',
-                color: priceMode === 'wholesale' ? '#fff' : 'var(--text-muted)'
-              }}
-            >
-              Wholesale
-            </button>
-          </div>
+                <button
+                  onClick={() => setPriceMode('retail')}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.78rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: priceMode === 'retail' ? 'var(--primary)' : 'transparent',
+                    color: priceMode === 'retail' ? '#fff' : 'var(--text-muted)'
+                  }}
+                >
+                  Retail
+                </button>
+                <button
+                  onClick={() => setPriceMode('wholesale')}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.78rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: priceMode === 'wholesale' ? 'var(--accent-purple)' : 'transparent',
+                    color: priceMode === 'wholesale' ? '#fff' : 'var(--text-muted)'
+                  }}
+                >
+                  Wholesale
+                </button>
+              </div>
+            </div>
 
-          {/* Parked Orders Trigger Button */}
-          {onOpenHeldOrders && (
-            <button
-              type="button"
-              onClick={onOpenHeldOrders}
-              style={{
-                padding: '0.4rem 0.75rem',
-                fontSize: '0.78rem',
-                fontWeight: 700,
-                borderRadius: 'var(--radius-sm)',
-                background: heldOrders.length > 0
-                  ? 'linear-gradient(135deg, hsl(38, 92%, 50%), hsl(28, 90%, 45%))'
-                  : 'var(--bg-surface-elevated)',
-                color: heldOrders.length > 0 ? '#fff' : 'var(--text-main)',
-                border: heldOrders.length > 0 ? 'none' : '1px solid var(--border-light)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-                boxShadow: heldOrders.length > 0 ? '0 2px 8px rgba(245, 158, 11, 0.35)' : 'none'
-              }}
-              title="Parked customer orders — serve multiple customers at once"
-            >
-              <PauseCircle size={15} />
-              <span>Parked</span>
-              {heldOrders.length > 0 && (
-                <span style={{
-                  background: heldOrders.length > 0 ? '#fff' : 'var(--primary)',
-                  color: heldOrders.length > 0 ? '#b45309' : '#fff',
-                  borderRadius: '999px',
-                  padding: '0.05rem 0.4rem',
-                  fontSize: '0.68rem',
-                  fontWeight: 800
-                }}>
-                  {heldOrders.length}
-                </span>
+            {/* Row 2: Parked Orders, Spot Borrow, and Search Bar */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem',
+              flexWrap: 'wrap'
+            }}>
+              {/* Parked Orders Trigger Button */}
+              {onOpenHeldOrders && (
+                <button
+                  type="button"
+                  onClick={onOpenHeldOrders}
+                  style={{
+                    padding: '0.45rem 0.75rem',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    borderRadius: 'var(--radius-sm)',
+                    background: heldOrders.length > 0
+                      ? 'linear-gradient(135deg, hsl(38, 92%, 50%), hsl(28, 90%, 45%))'
+                      : 'var(--bg-surface-elevated)',
+                    color: heldOrders.length > 0 ? '#fff' : 'var(--text-main)',
+                    border: heldOrders.length > 0 ? 'none' : '1px solid var(--border-light)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    boxShadow: heldOrders.length > 0 ? '0 2px 8px rgba(245, 158, 11, 0.35)' : 'none'
+                  }}
+                  title="Parked customer orders — serve multiple customers at once"
+                >
+                  <PauseCircle size={15} />
+                  <span>Parked</span>
+                  {heldOrders.length > 0 && (
+                    <span style={{
+                      background: heldOrders.length > 0 ? '#fff' : 'var(--primary)',
+                      color: heldOrders.length > 0 ? '#b45309' : '#fff',
+                      borderRadius: '999px',
+                      padding: '0.05rem 0.4rem',
+                      fontSize: '0.68rem',
+                      fontWeight: 800
+                    }}>
+                      {heldOrders.length}
+                    </span>
+                  )}
+                </button>
               )}
-            </button>
-          )}
 
-          {/* Spot Borrow Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setBorrowForm({
-                product_name: '',
-                grade: '',
-                publisher: '',
-                borrow_supplier: '',
-                borrow_cost_price: '',
-                retail_price: '',
-                quantity: 1,
-                is_custom: false,
-                selected_product_id: ''
-              });
-              setIsBorrowModalOpen(true);
-            }}
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              borderRadius: 'var(--radius-sm)',
-              background: 'linear-gradient(135deg, hsl(38, 92%, 50%), hsl(28, 90%, 45%))',
-              color: '#fff',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.35rem',
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-              boxShadow: '0 2px 6px rgba(245, 158, 11, 0.25)'
-            }}
-            title="Borrow books from neighbor store or supplier to sell on the spot"
-          >
-            <Handshake size={15} /> Spot Borrow
-          </button>
-
-          {/* Search Bar */}
-          <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
-            <Search size={16} style={{ position: 'absolute', left: '10px', color: 'var(--text-subtle)' }} />
-            <input 
-              type="text" 
-              className="form-control"
-              placeholder="Search title, author or ISBN..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '2.1rem', paddingRight: onOpenScanner ? '6.8rem' : '4.6rem', fontSize: '0.85rem' }}
-            />
-            {/* Visual Search / Snap to Cart button */}
-            <button
-              type="button"
-              onClick={() => { setVisualSearchMode('snap_cart'); setIsVisualSearchOpen(true); }}
-              title="AI Visual Search – Snap photo to add to cart or check prices"
-              style={{
-                position: 'absolute',
-                right: onOpenScanner ? '72px' : '38px',
-                background: 'linear-gradient(135deg, var(--primary), var(--accent-purple))',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                padding: '0.35rem 0.5rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'opacity 0.2s',
-                boxShadow: '0 2px 6px var(--primary-glow)'
-              }}
-            >
-              <Camera size={16} />
-            </button>
-            {/* Voice mic button */}
-            <button
-              type="button"
-              onClick={() => setIsVoiceModalOpen(true)}
-              title="Voice Selling – speak to add products"
-              style={{
-                position: 'absolute',
-                right: onOpenScanner ? '38px' : '6px',
-                background: 'var(--accent-purple)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                padding: '0.35rem 0.5rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 0.2s'
-              }}
-            >
-              <Mic size={16} />
-            </button>
-            {onOpenScanner && (
+              {/* Spot Borrow Button */}
               <button
                 type="button"
-                onClick={onOpenScanner}
-                title="Scan ISBN Barcode with Camera"
+                onClick={() => {
+                  setBorrowForm({
+                    product_name: '',
+                    grade: '',
+                    publisher: '',
+                    borrow_supplier: '',
+                    borrow_cost_price: '',
+                    retail_price: '',
+                    quantity: 1,
+                    is_custom: false,
+                    selected_product_id: ''
+                  });
+                  setIsBorrowModalOpen(true);
+                }}
                 style={{
-                  position: 'absolute',
-                  right: '6px',
-                  background: 'var(--primary-light)',
-                  color: 'var(--primary)',
-                  border: 'none',
+                  padding: '0.45rem 0.75rem',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
                   borderRadius: 'var(--radius-sm)',
-                  padding: '0.35rem 0.5rem',
+                  background: 'linear-gradient(135deg, hsl(38, 92%, 50%), hsl(28, 90%, 45%))',
+                  color: '#fff',
+                  border: 'none',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'background 0.2s'
+                  gap: '0.35rem',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 6px rgba(245, 158, 11, 0.25)'
                 }}
+                title="Borrow books from neighbor store or supplier to sell on the spot"
               >
-                <BarcodeIcon size={16} />
+                <Handshake size={15} /> Spot Borrow
               </button>
-            )}
+
+              {/* Search Bar */}
+              <div style={{ 
+                position: 'relative', 
+                flex: '1 1 240px', 
+                minWidth: '200px', 
+                display: 'flex', 
+                alignItems: 'center' 
+              }}>
+                <Search size={16} style={{ position: 'absolute', left: '10px', color: 'var(--text-subtle)' }} />
+                <input 
+                  type="text" 
+                  className="form-control"
+                  placeholder="Search title, author or ISBN..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  style={{ 
+                    width: '100%', 
+                    paddingLeft: '2.1rem', 
+                    paddingRight: onOpenScanner ? '6.8rem' : '4.6rem', 
+                    fontSize: '0.85rem' 
+                  }}
+                />
+                {/* Visual Search / Snap to Cart button */}
+                <button
+                  type="button"
+                  onClick={() => { setVisualSearchMode('snap_cart'); setIsVisualSearchOpen(true); }}
+                  title="AI Visual Search – Snap photo to add to cart or check prices"
+                  style={{
+                    position: 'absolute',
+                    right: onOpenScanner ? '72px' : '38px',
+                    background: 'linear-gradient(135deg, var(--primary), var(--accent-purple))',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '0.35rem 0.5rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'opacity 0.2s',
+                    boxShadow: '0 2px 6px var(--primary-glow)'
+                  }}
+                >
+                  <Camera size={16} />
+                </button>
+                {/* Voice mic button */}
+                <button
+                  type="button"
+                  onClick={() => setIsVoiceModalOpen(true)}
+                  title="Voice Selling – speak to add products"
+                  style={{
+                    position: 'absolute',
+                    right: onOpenScanner ? '38px' : '6px',
+                    background: 'var(--accent-purple)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '0.35rem 0.5rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'background 0.2s'
+                  }}
+                >
+                  <Mic size={16} />
+                </button>
+                {onOpenScanner && (
+                  <button
+                    type="button"
+                    onClick={onOpenScanner}
+                    title="Scan ISBN Barcode with Camera"
+                    style={{
+                      position: 'absolute',
+                      right: '6px',
+                      background: 'var(--primary-light)',
+                      color: 'var(--primary)',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.35rem 0.5rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'background 0.2s'
+                    }}
+                  >
+                    <BarcodeIcon size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
 
         {/* Categories Bar Pills */}
         <div style={{
@@ -714,7 +741,6 @@ export default function SellingInterface({
             );
           })}
         </div>
-      </div>
 
       {/* Book Catalog List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
