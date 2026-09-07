@@ -51,7 +51,11 @@ export default function ProductManagement({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [isVisualRegisterOpen, setIsVisualRegisterOpen] = useState(false);
-  const [scanMode, setScanMode] = useState('new'); // 'new' | 'form'
+  const [scanMode, setScanMode] = useState('new'); // 'new' | 'form' | 'update_product'
+  const [barcodeActionProduct, setBarcodeActionProduct] = useState(null);
+  const [barcodeInputValue, setBarcodeInputValue] = useState('');
+  const [productToUpdateBarcode, setProductToUpdateBarcode] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -212,10 +216,53 @@ export default function ProductManagement({
     }
   }, [initialBarcode]);
 
-  const handleScanToAddSuccess = (code, matchedProduct) => {
+  const handleSaveProductBarcode = async (targetProduct, newBarcode) => {
+    if (!targetProduct) return;
+    const trimmed = String(newBarcode || '').trim();
+    if (!trimmed) {
+      alert('Barcode cannot be empty.');
+      return;
+    }
+
+    const duplicate = safeProducts.find(p => 
+      p.id !== targetProduct.id && 
+      p.barcode && 
+      String(p.barcode).trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (duplicate) {
+      const confirmReassign = window.confirm(
+        `Barcode "${trimmed}" is already assigned to "${duplicate.product_name}". Do you still want to assign it to "${targetProduct.product_name}"?`
+      );
+      if (!confirmReassign) return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const updated = { ...targetProduct, barcode: trimmed };
+      await saveProductToDB(updated);
+      if (onRefreshProducts) await onRefreshProducts();
+      setBarcodeActionProduct(null);
+      setToastMessage({
+        type: 'success',
+        text: `Barcode for "${targetProduct.product_name}" updated to ${trimmed}`
+      });
+      setTimeout(() => setToastMessage(null), 4500);
+    } catch (err) {
+      console.error('Error saving barcode:', err);
+      alert('Failed to update barcode: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleScanToAddSuccess = async (code, matchedProduct) => {
     setIsScanModalOpen(false);
     if (scanMode === 'form') {
       setFormData(prev => ({ ...prev, barcode: code }));
+    } else if (scanMode === 'update_product' && productToUpdateBarcode) {
+      const target = productToUpdateBarcode;
+      setProductToUpdateBarcode(null);
+      await handleSaveProductBarcode(target, code);
     } else {
       if (matchedProduct) {
         openFormModal(matchedProduct);
@@ -816,7 +863,16 @@ export default function ProductManagement({
                       </td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'flex-end' }}>
-                          <button type="button" className="btn-icon" title="Print Barcode" onClick={() => onOpenBarcodeGen && onOpenBarcodeGen(product)} style={{ width: '28px', height: '28px' }}>
+                          <button 
+                            type="button" 
+                            className="btn-icon" 
+                            title="Scan or Print Barcode" 
+                            onClick={() => {
+                              setBarcodeActionProduct(product);
+                              setBarcodeInputValue(product.barcode || '');
+                            }} 
+                            style={{ width: '28px', height: '28px' }}
+                          >
                             <BarcodeIcon size={13} />
                           </button>
                           <button type="button" className="btn-icon" title="Edit Book" onClick={() => openFormModal(product)} style={{ width: '28px', height: '28px' }}>
@@ -887,8 +943,13 @@ export default function ProductManagement({
 
                     <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
                       <button
-                        type="button" className="btn-icon" title="Print Barcode Label"
-                        onClick={() => onOpenBarcodeGen && onOpenBarcodeGen(product)}
+                        type="button" 
+                        className="btn-icon" 
+                        title="Scan or Print Barcode"
+                        onClick={() => {
+                          setBarcodeActionProduct(product);
+                          setBarcodeInputValue(product.barcode || '');
+                        }}
                         style={{ width: '30px', height: '30px' }}
                       >
                         <BarcodeIcon size={14} />
@@ -1191,10 +1252,254 @@ export default function ProductManagement({
       {isScanModalOpen && (
         <BarcodeScannerModal
           isOpen={isScanModalOpen}
-          onClose={() => setIsScanModalOpen(false)}
+          onClose={() => {
+            setIsScanModalOpen(false);
+            setProductToUpdateBarcode(null);
+          }}
           onScanSuccess={handleScanToAddSuccess}
           products={safeProducts}
+          title={
+            scanMode === 'form' 
+              ? 'Scan Barcode for Book' 
+              : scanMode === 'update_product' 
+                ? 'Update Product Barcode' 
+                : 'Scan Barcode & ISBN'
+          }
+          subtitle={
+            scanMode === 'update_product' && productToUpdateBarcode
+              ? `Scanning new barcode for: ${productToUpdateBarcode.product_name}`
+              : scanMode === 'form'
+                ? `Scanning barcode into book edit form`
+                : 'Live Auto-Scan or Snap a Picture to capture'
+          }
+          targetProductName={
+            scanMode === 'update_product' ? productToUpdateBarcode?.product_name : (scanMode === 'form' ? formData.product_name : null)
+          }
         />
+      )}
+
+      {/* Barcode Actions Modal (Scan to Update / Print / Edit) */}
+      {barcodeActionProduct && (
+        <div 
+          className="modal-overlay" 
+          onClick={() => setBarcodeActionProduct(null)} 
+          style={{ zIndex: 10500 }}
+        >
+          <div 
+            className="modal-content" 
+            onClick={e => e.stopPropagation()} 
+            style={{ maxWidth: '480px' }}
+          >
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                <div style={{
+                  background: 'linear-gradient(135deg, var(--primary), var(--accent-purple))',
+                  color: '#fff',
+                  padding: '0.4rem',
+                  borderRadius: 'var(--radius-sm)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <BarcodeIcon size={18} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    Barcode Management
+                  </h3>
+                  <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {barcodeActionProduct.product_name}
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                className="btn-icon" 
+                onClick={() => setBarcodeActionProduct(null)}
+                style={{ width: '30px', height: '30px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              {/* Current Barcode Box */}
+              <div style={{
+                background: 'var(--bg-surface-elevated)',
+                border: '1px solid var(--border-light)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.85rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.5rem'
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                    Current Barcode / ISBN
+                  </div>
+                  <div style={{ 
+                    fontSize: '1.1rem', 
+                    fontWeight: 800, 
+                    fontFamily: 'var(--font-mono)', 
+                    color: barcodeActionProduct.barcode ? 'var(--primary)' : 'var(--text-muted)',
+                    marginTop: '2px'
+                  }}>
+                    {barcodeActionProduct.barcode || 'No Barcode Assigned'}
+                  </div>
+                </div>
+                {barcodeActionProduct.barcode && (
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    padding: '0.2rem 0.55rem',
+                    borderRadius: 'var(--radius-full)',
+                    background: 'var(--accent-emerald-light)',
+                    color: 'var(--accent-emerald)'
+                  }}>
+                    Active
+                  </span>
+                )}
+              </div>
+
+              {/* Action Buttons: Scan to Update vs Print Barcode */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    const target = barcodeActionProduct;
+                    setProductToUpdateBarcode(target);
+                    setScanMode('update_product');
+                    setBarcodeActionProduct(null);
+                    setIsScanModalOpen(true);
+                  }}
+                  style={{
+                    padding: '0.75rem 0.6rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.35rem',
+                    borderRadius: 'var(--radius-md)',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    textAlign: 'center',
+                    boxShadow: '0 4px 12px var(--primary-glow)'
+                  }}
+                >
+                  <Camera size={20} />
+                  <span>Scan New Barcode</span>
+                  <span style={{ fontSize: '0.68rem', opacity: 0.88, fontWeight: 400 }}>
+                    Camera auto-scan & assign
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    const target = barcodeActionProduct;
+                    setBarcodeActionProduct(null);
+                    if (onOpenBarcodeGen) onOpenBarcodeGen(target);
+                  }}
+                  style={{
+                    padding: '0.75rem 0.6rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.35rem',
+                    borderRadius: 'var(--radius-md)',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    textAlign: 'center'
+                  }}
+                >
+                  <BarcodeIcon size={20} color="var(--primary)" />
+                  <span>Print Barcode</span>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                    Generate sticker sheet
+                  </span>
+                </button>
+              </div>
+
+              {/* Manual Barcode Input / Auto-Generate */}
+              <div style={{
+                borderTop: '1px solid var(--border-light)',
+                paddingTop: '0.85rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.45rem'
+              }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-subtle)' }}>
+                  Or Type Barcode Manually / Auto-Generate:
+                </label>
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Type barcode or ISBN..."
+                    value={barcodeInputValue}
+                    onChange={e => setBarcodeInputValue(e.target.value)}
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: '0.84rem' }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      const randomBarcode = Math.floor(100000000000 + Math.random() * 900000000000).toString();
+                      setBarcodeInputValue(randomBarcode);
+                    }}
+                    title="Generate random 12-digit barcode"
+                    style={{ fontSize: '0.75rem', padding: '0 0.55rem', whiteSpace: 'nowrap' }}
+                  >
+                    🎲 Auto
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={isSubmitting || !barcodeInputValue.trim() || barcodeInputValue.trim() === barcodeActionProduct.barcode}
+                    onClick={() => handleSaveProductBarcode(barcodeActionProduct, barcodeInputValue)}
+                    style={{ fontSize: '0.78rem', padding: '0 0.85rem', whiteSpace: 'nowrap' }}
+                  >
+                    {isSubmitting ? <Loader size={14} className="animate-spin" /> : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 12000,
+          background: toastMessage.type === 'error' ? 'var(--accent-rose)' : 'var(--accent-emerald)',
+          color: '#fff',
+          padding: '0.65rem 1rem',
+          borderRadius: 'var(--radius-md)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '0.84rem',
+          fontWeight: 600,
+          animation: 'slideUp 0.25s ease-out'
+        }}>
+          <Check size={16} />
+          <span>{toastMessage.text}</span>
+          <button 
+            type="button" 
+            onClick={() => setToastMessage(null)} 
+            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, marginLeft: '0.4rem', display: 'flex' }}
+          >
+            <X size={14} />
+          </button>
+        </div>
       )}
 
       {/* Visual Search & Smart Book Register Modal */}
