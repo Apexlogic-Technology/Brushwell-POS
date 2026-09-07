@@ -691,13 +691,22 @@ export default function SellingInterface({
             </div>
           </div>
 
-        {/* Categories Bar Pills */}
+        {/* Categories Bar Pills — sticky so pills always float above the product list */}
         <div style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+          background: 'var(--bg-surface)',
           display: 'flex',
           gap: '0.4rem',
           overflowX: 'auto',
-          paddingBottom: '0.2rem',
-          scrollbarWidth: 'none'
+          paddingTop: '0.15rem',
+          paddingBottom: '0.35rem',
+          scrollbarWidth: 'none',
+          marginLeft: '-0.1rem',
+          marginRight: '-0.1rem',
+          paddingLeft: '0.1rem',
+          paddingRight: '0.1rem',
         }}>
           <button
             onClick={() => setSelectedCat('all')}
