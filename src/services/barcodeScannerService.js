@@ -85,9 +85,17 @@ function getCropCanvas() {
 
 let _cachedNativeDetector = null;
 let _nativeDetectorPromise = null;
+// Synchronous flag — true once the native detector is confirmed functional.
+// The scan loop reads this without await so there's zero async overhead per tick.
+let _nativeReady = false;
 
 export function isNativeBarcodeDetectorSupported() {
   return typeof window !== 'undefined' && 'BarcodeDetector' in window;
+}
+
+/** True only after getNativeDetector() has resolved and the detector works. */
+export function isNativeReady() {
+  return _nativeReady;
 }
 
 export async function getNativeDetector() {
@@ -103,20 +111,41 @@ export async function getNativeDetector() {
         const matched = desired.filter(f => supported.includes(f));
         if (matched.length > 0) {
           _cachedNativeDetector = new window.BarcodeDetector({ formats: matched });
+          _nativeReady = true;
           return _cachedNativeDetector;
         }
       }
       // Fallback — let browser choose supported formats
       _cachedNativeDetector = new window.BarcodeDetector({ formats: desired });
+      _nativeReady = true;
       return _cachedNativeDetector;
     } catch (e) {
       console.warn('[BarcodeDetector] Init failed:', e.message);
       _cachedNativeDetector = null;
+      _nativeReady = false;
       return null;
     }
   })();
 
   return _nativeDetectorPromise;
+}
+
+/**
+ * Pre-warm both scan engines as early as possible so the first scan
+ * doesn't pay the JIT / class-instantiation cold-start penalty.
+ * Called once at module load time.
+ */
+export function prewarmScanEngines() {
+  // Fire-and-forget — just trigger initialization so the singletons are ready
+  getNativeDetector().catch(() => {});
+  getZxingReader(); // Synchronous singleton, no await needed
+  getCropCanvas(); // Pre-allocate the off-screen canvas
+}
+
+// Auto-prewarm on module load
+if (typeof window !== 'undefined') {
+  // Defer slightly so as not to block the first paint
+  setTimeout(prewarmScanEngines, 200);
 }
 
 /**

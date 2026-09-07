@@ -12,8 +12,10 @@ import {
 import { 
   detectFromVideoFrame, 
   decodeLiveVideoFrameFast,
-  playBeep 
+  playBeep,
+  isNativeReady
 } from '../services/barcodeScannerService';
+
 
 export default function FullscreenCameraScanner({
   products = [],
@@ -50,6 +52,10 @@ export default function FullscreenCameraScanner({
   const liveLoopRef = useRef(null);
   const notifTimerRef = useRef(null);
   const contrastScanTickRef = useRef(0);
+  // Ref mirror of isPaused prop — lets the setInterval closure read the latest value
+  // without ever going stale (closures capture the value at creation time, not updates).
+  const isPausedRef = useRef(isPaused);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
   // Calculate live cart total
   const cartItemCount = cart.reduce((sum, item) => sum + (item.quantity || 1), 0);
@@ -165,13 +171,14 @@ export default function FullscreenCameraScanner({
     const mode = overrideFacingMode || facingMode;
 
     try {
-      // Use ideal constraints but allow fallback to lower res for faster autofocus on mobile
+      // Request stream with base resolution constraints.
+      // NOTE: focusMode/exposureMode are track-level advanced constraints
+      //       and must be applied via track.applyConstraints() after stream is obtained.
       const constraints = {
         video: {
           facingMode: { ideal: mode },
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-          focusMode: 'continuous'  // Request continuous autofocus (Android Chrome supports this)
+          width:  { ideal: 1280, min: 640 },
+          height: { ideal: 720,  min: 480 },
         },
         audio: false
       };
@@ -184,13 +191,29 @@ export default function FullscreenCameraScanner({
 
       streamRef.current = stream;
 
-      // Check torch capabilities on back camera
+      // Apply camera-level advanced constraints on the track directly.
+      // focusMode: 'continuous' ensures the lens hunts and locks fast on Android.
+      // This is the correct API — NOT inside getUserMedia constraints.
       try {
         const track = stream.getVideoTracks()[0];
-        if (track && track.getCapabilities) {
+        if (track && track.getCapabilities && track.applyConstraints) {
           const caps = track.getCapabilities();
+
+          // Check torch support
           if (caps && ('torch' in caps || caps.torch)) {
             setTorchAvailable(true);
+          }
+
+          // Apply continuous autofocus + auto exposure if supported
+          const advanced = {};
+          if (caps.focusMode && caps.focusMode.includes('continuous')) {
+            advanced.focusMode = 'continuous';
+          }
+          if (caps.exposureMode && caps.exposureMode.includes('continuous')) {
+            advanced.exposureMode = 'continuous';
+          }
+          if (Object.keys(advanced).length > 0) {
+            await track.applyConstraints({ advanced: [advanced] }).catch(() => {});
           }
         }
       } catch (e) {}
@@ -207,30 +230,36 @@ export default function FullscreenCameraScanner({
         setIsCameraReady(true);
         setCameraError(null);
 
-        // Start live detection loop — dual engine:
+        // ─── Live Detection Loop ────────────────────────────────────────────
         // PRIMARY:  Native BarcodeDetector (~5ms, hardware GPU, Android Chrome)
-        // FALLBACK: ZXing @zxing/library BrowserMultiFormatReader — works on ALL browsers,
-        //           supports EAN-13/ISBN on any phone regardless of Google Play Services.
-        //           Runs every 200ms on a 640x320 center crop — fast and mobile-friendly.
+        //           Runs every tick (100ms) when confirmed available.
+        // FALLBACK: ZXing @zxing/library BrowserMultiFormatReader.
+        //           When native is NOT ready: runs every tick (100ms) for best speed.
+        //           When native IS ready:     runs every 2nd tick (200ms) as safety net.
         if (liveLoopRef.current) clearInterval(liveLoopRef.current);
         liveLoopRef.current = setInterval(async () => {
-          if (!isMountedRef.current || !videoRef.current || isPaused) return;
+          if (!isMountedRef.current || !videoRef.current) return;
+          // Read isPaused from ref so the interval closure is never stale
+          if (isPausedRef.current) return;
           const video = videoRef.current;
           if (video.readyState < 2 || video.paused) return;
 
           // 1. Hardware BarcodeDetector (instant when supported)
           let code = await detectFromVideoFrame(video);
 
-          // 2. ZXing fallback every 2nd tick (~200ms) — reliable EAN-13 on all browsers
+          // 2. ZXing fallback:
+          //    - When native isn't ready: run every tick for maximum speed.
+          //    - When native IS ready: run every 2nd tick (200ms) as a safety net only.
           if (!code) {
             contrastScanTickRef.current = (contrastScanTickRef.current + 1) % 2;
-            if (contrastScanTickRef.current === 0) {
+            const nativeOk = isNativeReady();
+            if (!nativeOk || contrastScanTickRef.current === 0) {
               code = await decodeLiveVideoFrameFast(video);
             }
           }
 
           if (code) handleBarcodeDetected(code);
-        }, 100); // 10fps — smooth enough, easy on mobile CPU
+        }, 100); // 10fps — optimal balance of speed vs mobile CPU heat
       }
     } catch (err) {
       console.error('Camera stream error:', err);
@@ -239,7 +268,8 @@ export default function FullscreenCameraScanner({
         setCameraError(err.message || 'Camera permission denied or camera not found.');
       }
     }
-  }, [facingMode, handleBarcodeDetected, isPaused, stopCamera]);
+  }, [facingMode, handleBarcodeDetected, stopCamera]);
+
 
   // Lifecycle
   useEffect(() => {
