@@ -238,7 +238,6 @@ button:active {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   padding: 0.75rem;
   /* Exactly: 60px nav height + safe area — no extra whitespace */
   padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
@@ -262,6 +261,11 @@ button:active {
   padding: 0 0.5rem;
   padding-bottom: env(safe-area-inset-bottom, 0px);
   box-sizing: content-box;
+}
+
+/* When any modal overlay is active, ensure bottom navigation never obscures dialog buttons */
+body:has(.modal-overlay) .bottom-nav {
+  display: none !important;
 }
 
 .nav-item {
@@ -288,6 +292,32 @@ button:active {
   filter: drop-shadow(0 2px 6px var(--primary-glow));
 }
 
+/* Floating Checkout Dock for Catalog POS */
+.floating-checkout-bar {
+  position: fixed;
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  left: 0;
+  right: 0;
+  background: linear-gradient(135deg, var(--primary), var(--accent-purple));
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 -4px 20px var(--primary-glow);
+  z-index: 150;
+  cursor: pointer;
+}
+
+@media (min-width: 900px) {
+  .floating-checkout-bar {
+    position: sticky;
+    bottom: 0;
+    margin: 0 -0.75rem -0.75rem;
+    z-index: 80;
+  }
+}
+
 /* Modal Overlay & Card */
 .modal-overlay {
   position: fixed;
@@ -309,8 +339,8 @@ button:active {
   background: var(--bg-surface);
   width: 100%;
   max-width: 550px;
-  max-height: 88dvh;
-  max-height: 88vh;
+  max-height: calc(100dvh - 1.5rem - env(safe-area-inset-bottom, 0px));
+  max-height: calc(100vh - 1.5rem - env(safe-area-inset-bottom, 0px));
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -352,6 +382,7 @@ button:active {
 
 .modal-footer {
   padding: 0.75rem 1.15rem;
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem));
   border-top: 1px solid var(--border-light);
   display: flex;
   align-items: center;

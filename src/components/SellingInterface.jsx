@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Search, ShoppingCart, Plus, Minus, Trash2, Tag, 
   CreditCard, DollarSign, Smartphone, Check, Sparkles, 
   AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon, Mic, BookOpen,
-  Handshake, Store, Info, HelpCircle, Camera, PauseCircle, Users
+  Handshake, Store, Info, HelpCircle, Camera, PauseCircle, Users, X
 } from 'lucide-react';
 import { processCheckout, DEFAULT_TAX_TYPES } from '../services/supabaseService';
 import VoiceSellingModal from './VoiceSellingModal';
@@ -1019,26 +1020,13 @@ export default function SellingInterface({
             📥 Load More Books ({filteredProducts.length - visibleCount} remaining)
           </button>
         )}
+        {/* Spacer so floating checkout dock never covers last catalog row on mobile */}
+        {cart.length > 0 && <div style={{ height: '80px', flexShrink: 0 }} />}
       </div>
 
       {/* Floating Bottom Cart Bar */}
-      {cart.length > 0 && (
-        <div style={{
-          position: 'sticky',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          margin: '0 -0.75rem -0.75rem',
-          background: 'linear-gradient(135deg, var(--primary), var(--accent-purple))',
-          color: '#fff',
-          padding: '0.75rem 1.25rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          boxShadow: '0 -4px 20px var(--primary-glow)',
-          zIndex: 80,
-          cursor: 'pointer'
-        }} onClick={() => setIsCartOpen(true)}>
+      {cart.length > 0 && !isCartOpen && (
+        <div className="floating-checkout-bar" onClick={() => setIsCartOpen(true)}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{
               background: 'rgba(255,255,255,0.2)',
@@ -1095,19 +1083,30 @@ export default function SellingInterface({
       )}
 
       {/* Checkout Drawer Modal */}
-      {isCartOpen && (
-        <div className="modal-overlay" onClick={() => setIsCartOpen(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxHeight: '92vh' }}>
+      {isCartOpen && typeof document !== 'undefined' && createPortal(
+        <div className="modal-overlay" onClick={() => setIsCartOpen(false)} style={{ zIndex: 10000 }}>
+          <div 
+            className="modal-content" 
+            onClick={e => e.stopPropagation()} 
+            style={{ 
+              maxHeight: 'calc(100dvh - 2rem - env(safe-area-inset-bottom, 0px))',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden'
+            }}
+          >
             
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <ShoppingCart size={20} color="var(--primary)" />
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Order Cart & Checkout</h3>
               </div>
-              <button className="btn-icon" onClick={() => setIsCartOpen(false)}><Trash2 size={16} /></button>
+              <button className="btn-icon" onClick={() => setIsCartOpen(false)} title="Close Checkout">
+                <X size={18} />
+              </button>
             </div>
 
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
               
               {/* Item List Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1726,13 +1725,23 @@ export default function SellingInterface({
 
             </div>
 
-            <div className="modal-footer">
+            <div 
+              className="modal-footer"
+              style={{
+                flexShrink: 0,
+                position: 'sticky',
+                bottom: 0,
+                zIndex: 10,
+                background: 'var(--bg-surface)',
+                paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0.75rem))'
+              }}
+            >
               <button className="btn-secondary" onClick={() => setIsCartOpen(false)}>Cancel</button>
               <button 
                 className="btn-accent" 
                 onClick={handleFinalCheckout}
                 disabled={isSubmitting || cart.length === 0}
-                style={{ flex: 1 }}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem', padding: '0.75rem 1rem', fontSize: '0.92rem', fontWeight: 800 }}
               >
                 {isSubmitting ? <RefreshCw className="animate-spin" size={18} /> : <Check size={18} />}
                 Complete Sale & Save Receipt
@@ -1740,7 +1749,8 @@ export default function SellingInterface({
             </div>
 
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Voice Selling Modal */}
@@ -1780,9 +1790,9 @@ export default function SellingInterface({
       />
 
       {/* Spot Borrow Modal */}
-      {isBorrowModalOpen && (
+      {isBorrowModalOpen && typeof document !== 'undefined' && createPortal(
         <div className="modal-overlay" onClick={() => setIsBorrowModalOpen(false)} style={{ zIndex: 10002 }}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px', maxHeight: 'calc(100dvh - 2rem - env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -1800,8 +1810,8 @@ export default function SellingInterface({
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Sell books borrowed on credit from neighbor stores</div>
                 </div>
               </div>
-              <button type="button" className="btn-icon" onClick={() => setIsBorrowModalOpen(false)}>
-                <Trash2 size={16} />
+              <button type="button" className="btn-icon" onClick={() => setIsBorrowModalOpen(false)} title="Close">
+                <X size={18} />
               </button>
             </div>
 
@@ -2048,7 +2058,8 @@ export default function SellingInterface({
 
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>
