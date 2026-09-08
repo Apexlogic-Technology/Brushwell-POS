@@ -35,6 +35,8 @@ export const getSettings = () => {
     currency_symbol: '¢',
     printer_paper_width: parsed.printer_paper_width || '58mm',
     printer_bluetooth_name: parsed.printer_bluetooth_name || '',
+    scanner_bluetooth_name: parsed.scanner_bluetooth_name || '',
+    scanner_beep_enabled: parsed.scanner_beep_enabled !== undefined ? parsed.scanner_beep_enabled : true,
     tax_types: parsed.tax_types,
     tax_enabled_default: parsed.tax_enabled_default || false,
     low_stock_threshold: parsed.low_stock_threshold !== undefined ? parseInt(parsed.low_stock_threshold, 10) : 5,

@@ -152,7 +152,12 @@ export default function ReceiptModal({ isOpen, onClose, order, settings = {} }) 
               <div>Date: {new Date(order.timestamp || order.created_at || Date.now()).toLocaleString()}</div>
               <div>Customer: <strong>{order.customer_name || 'Walk-in Customer'}</strong></div>
               {order.customer_phone && <div>Phone: {order.customer_phone}</div>}
-              <div>Cashier: {order.cashier_name}</div>
+              <div>Cashier: <strong>{order.cashier_name || 'Staff'}</strong></div>
+              {settings.cashier_name && order.cashier_name && settings.cashier_name !== order.cashier_name && (
+                <div style={{ color: '#64748b', fontStyle: 'italic' }}>
+                  (Reprinted by: {settings.cashier_name})
+                </div>
+              )}
               <div>Pricing Tier: <strong>{order.price_mode === 'wholesale' ? 'WHOLESALE' : 'RETAIL'}</strong></div>
             </div>
 

@@ -446,17 +446,15 @@ export default function App() {
             </button>
           )}
 
-          {isAdmin && (
-            <button
-              type="button"
-              className="desktop-nav-link"
-              onClick={() => setIsSettingsOpen(true)}
-              title="Store & Database Settings"
-            >
-              <Settings size={18} />
-              <span>POS Settings</span>
-            </button>
-          )}
+          <button
+            type="button"
+            className="desktop-nav-link"
+            onClick={() => setIsSettingsOpen(true)}
+            title={isAdmin ? 'Store & Database Settings' : 'Printer & Scanner Setup'}
+          >
+            <Settings size={18} />
+            <span>{isAdmin ? 'POS Settings' : 'Hardware Setup'}</span>
+          </button>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '0.5rem' }}>
             <button
@@ -518,6 +516,7 @@ export default function App() {
             heldOrders={heldOrders}
             onHoldCurrentCart={holdCurrentCart}
             onOpenHeldOrders={() => setIsHeldOrdersOpen(true)}
+            onOpenOrderHistory={() => setIsOrderHistoryOpen(true)}
           />
         )}
         {activeTab === 'products' && (
@@ -586,6 +585,7 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onSettingsSaved={handleSettingsSaved}
+        isAdmin={isAdmin}
       />
       <StockReceivingModal
         isOpen={isStockReceiveOpen}

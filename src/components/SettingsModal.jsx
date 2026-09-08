@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Bluetooth, Check, AlertCircle, RefreshCw, Database, Printer, Percent, Plus, Trash2, Eye, EyeOff, Smartphone, Copy, Sparkles, Camera } from 'lucide-react';
+import { 
+  X, Save, Bluetooth, Check, AlertCircle, RefreshCw, Database, Printer, 
+  Percent, Plus, Trash2, Eye, EyeOff, Smartphone, Copy, Sparkles, 
+  Barcode as BarcodeIcon, Scan, Volume2 
+} from 'lucide-react';
 import { getSettings, saveSettings, DEFAULT_TAX_TYPES, testSupabaseConnection, resetSupabaseClient, wipeAllProductBarcodes } from '../services/supabaseService';
 import { connectBluetoothPrinter, disconnectBluetoothPrinter } from '../services/printerService';
+import { connectBluetoothScanner, disconnectBluetoothScanner, playBeep } from '../services/barcodeScannerService';
 import { testGeminiApiKey } from '../services/visionService';
 
-export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
+export default function SettingsModal({ isOpen, onClose, onSettingsSaved, isAdmin = false }) {
   const [form, setForm]               = useState(getSettings());
   const [btStatus, setBtStatus]       = useState('idle');
+  const [scannerBtStatus, setScannerBtStatus] = useState('idle');
+  const [scannerTestInput, setScannerTestInput] = useState('');
+  const [scannerLastScanned, setScannerLastScanned] = useState('');
   const [testStatus, setTestStatus]   = useState('idle');
   const [testMsg, setTestMsg]         = useState('');
   const [showKey, setShowKey]         = useState(false);
@@ -89,6 +97,38 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
     setForm(f => ({ ...f, printer_bluetooth_name: '' }));
   };
 
+  const handleScannerBtConnect = async () => {
+    setScannerBtStatus('connecting');
+    try {
+      const res = await connectBluetoothScanner();
+      setScannerBtStatus('connected');
+      setForm(f => ({ ...f, scanner_bluetooth_name: res.name }));
+    } catch {
+      setScannerBtStatus('error');
+      setTimeout(() => setScannerBtStatus('idle'), 3000);
+    }
+  };
+
+  const handleScannerBtDisconnect = () => {
+    disconnectBluetoothScanner();
+    setScannerBtStatus('idle');
+    setForm(f => ({ ...f, scanner_bluetooth_name: '' }));
+  };
+
+  const handleScannerTestKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const scanned = scannerTestInput.trim();
+      if (scanned) {
+        setScannerLastScanned(scanned);
+        if (form.scanner_beep_enabled !== false) {
+          playBeep();
+        }
+        setScannerTestInput('');
+      }
+    }
+  };
+
   const toggleTaxItem   = (i) => { const t = [...form.tax_types]; t[i].enabled = !t[i].enabled; setForm({ ...form, tax_types: t }); };
   const updateTaxItem   = (i, field, val) => { const t = [...form.tax_types]; t[i] = { ...t[i], [field]: val }; setForm({ ...form, tax_types: t }); };
   const addTaxType      = () => { setForm({ ...form, tax_types: [...(form.tax_types||[]), { id: 'tax-'+Date.now(), name: 'Custom Tax', rate_pct: 1.0, enabled: true }] }); };
@@ -103,344 +143,355 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
       <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
 
         <div className="modal-header">
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>⚙️ Store & System Settings</h3>
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>
+            {isAdmin ? '⚙️ Store & System Settings' : '🖨️ Station Hardware Setup'}
+          </h3>
           <button className="btn-icon" onClick={onClose}><X size={18} /></button>
         </div>
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Store Info */}
-          <section>
-            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem' }}>
-              Store & Currency
-            </div>
-            <div className="grid-2" style={{ marginBottom: '0.6rem' }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label>Bookshop Name</label>
-                <input type="text" className="form-control" value={form.store_name||''} onChange={e => setForm({ ...form, store_name: e.target.value })} placeholder="Brushwell Books" />
+          {/* Store Info (Admin Only) */}
+          {isAdmin && (
+            <section>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem' }}>
+                Store & Currency
               </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label>Store Currency</label>
-                <div style={{
-                  padding: '0.65rem 0.85rem',
-                  background: 'var(--bg-app)',
-                  border: '1px solid var(--border-light)',
-                  borderRadius: 'var(--radius-md)',
-                  fontWeight: 700,
-                  fontSize: '0.85rem',
-                  color: 'var(--primary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}>
-                  <span>Ghana Cedi (¢)</span>
-                  <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 800 }}>Default & Only</span>
+              <div className="grid-2" style={{ marginBottom: '0.6rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Bookshop Name</label>
+                  <input type="text" className="form-control" value={form.store_name||''} onChange={e => setForm({ ...form, store_name: e.target.value })} placeholder="Brushwell Books" />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Store Currency</label>
+                  <div style={{
+                    padding: '0.65rem 0.85rem',
+                    background: 'var(--bg-app)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: 'var(--radius-md)',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    color: 'var(--primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <span>Ghana Cedi (¢)</span>
+                    <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 800 }}>Default & Only</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label>Low Stock Warning Threshold (Copies)</label>
-              <input
-                type="number"
-                min="1"
-                className="form-control"
-                value={form.low_stock_threshold ?? 5}
-                onChange={e => setForm({ ...form, low_stock_threshold: parseInt(e.target.value, 10) || 1 })}
-                placeholder="5"
-              />
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                Books with stock at or below this quantity will display a yellow ⚠ Low warning badge in the cashier selling list.
-              </div>
-            </div>
-          </section>
-
-          {/* Supabase Connection */}
-          <section>
-            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Database size={14} /> Supabase Database Connection
-            </div>
-
-            <div className="form-group">
-              <label>Supabase Project URL</label>
-              <input
-                type="url"
-                className="form-control"
-                value={form.supabase_url||''}
-                onChange={e => setForm({ ...form, supabase_url: e.target.value })}
-                placeholder="https://xxxxxxxxxxxx.supabase.co"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Supabase Anon / Public Key</label>
-              <div style={{ position: 'relative' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Low Stock Warning Threshold (Copies)</label>
                 <input
-                  type={showKey ? 'text' : 'password'}
+                  type="number"
+                  min="1"
                   className="form-control"
-                  value={form.supabase_anon_key||''}
-                  onChange={e => setForm({ ...form, supabase_anon_key: e.target.value })}
-                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                  style={{ paddingRight: '2.5rem' }}
+                  value={form.low_stock_threshold ?? 5}
+                  onChange={e => setForm({ ...form, low_stock_threshold: parseInt(e.target.value, 10) || 1 })}
+                  placeholder="5"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(v => !v)}
-                  style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-                >
-                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  Books with stock at or below this quantity will display a yellow ⚠ Low warning badge in the cashier selling list.
+                </div>
               </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                Found in Supabase → Project Settings → API → anon public key
+            </section>
+          )}
+
+          {/* Supabase Connection (Admin Only) */}
+          {isAdmin && (
+            <section>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Database size={14} /> Supabase Database Connection
               </div>
-            </div>
 
-            <button
-              className="btn-secondary"
-              style={{ width: '100%', justifyContent: 'center' }}
-              onClick={handleTestConnection}
-              disabled={testStatus === 'loading' || !form.supabase_url || !form.supabase_anon_key}
-            >
-              {testStatus === 'loading' && <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />}
-              {testStatus === 'success' && <Check size={16} color="var(--accent-emerald)" />}
-              {testStatus === 'error'   && <AlertCircle size={16} color="var(--accent-rose)" />}
-              {testStatus === 'idle'    && <Database size={16} />}
-              {testStatus === 'loading' ? 'Testing...' : testStatus === 'success' ? 'Connected!' : testStatus === 'error' ? 'Connection Failed' : 'Test Connection'}
-            </button>
-
-            {testMsg && (
-              <div style={{
-                marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: 'var(--radius-md)', fontSize: '0.78rem', lineHeight: 1.45, fontWeight: 600,
-                background: testStatus === 'success' ? 'var(--accent-emerald-light)' : 'var(--accent-rose-light)',
-                border: `1px solid ${testStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'}`,
-                color: testStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
-              }}>
-                {testMsg}
-              </div>
-            )}
-
-            {/* ── Device Setup QR Code ─────────────────────────────────────── */}
-            {form.supabase_url && form.supabase_anon_key && (
-              <div style={{ marginTop: '0.75rem' }}>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  style={{ width: '100%', justifyContent: 'center', gap: '0.5rem' }}
-                  onClick={() => setShowQR(v => !v)}
-                >
-                  <Smartphone size={16} />
-                  {showQR ? 'Hide' : 'Connect a New Device (QR Code)'}
-                </button>
-
-                {showQR && (() => {
-                  // Encode credentials in the URL hash — never sent to any server
-                  const payload = btoa(JSON.stringify({
-                    u: form.supabase_url,
-                    k: form.supabase_anon_key
-                  }));
-                  const setupUrl = `${window.location.origin}${window.location.pathname}#setup=${payload}`;
-                  const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(setupUrl)}`;
-
-                  return (
-                    <div style={{
-                      marginTop: '0.75rem',
-                      background: 'var(--bg-surface-elevated)',
-                      border: '1px solid var(--border-light)',
-                      borderRadius: 'var(--radius-md)',
-                      padding: '1rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '0.75rem',
-                      textAlign: 'center'
-                    }}>
-                      <img
-                        src={qrApiUrl}
-                        alt="Device Setup QR Code"
-                        style={{ width: 180, height: 180, borderRadius: '8px', background: '#fff', padding: '6px' }}
-                      />
-                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                        Scan with any phone/tablet to auto-connect to this database.
-                        <br />Credentials are encoded locally — never sent to any server.
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ fontSize: '0.78rem', padding: '0.4rem 0.9rem', gap: '0.4rem' }}
-                        onClick={() => {
-                          navigator.clipboard.writeText(setupUrl).then(() => {
-                            setQrCopied(true);
-                            setTimeout(() => setQrCopied(false), 2000);
-                          });
-                        }}
-                      >
-                        {qrCopied ? <Check size={14} color="var(--accent-emerald)" /> : <Copy size={14} />}
-                        {qrCopied ? 'Copied!' : 'Copy Setup Link'}
-                      </button>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </section>
-
-          {/* AI Vision (Google Gemini) */}
-          <section>
-            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Sparkles size={14} color="var(--accent-purple)" /> AI Vision & Book Recognition
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '0.6rem' }}>
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Google Gemini API Key</span>
-                <a 
-                  href="https://aistudio.google.com/app/apikey" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  style={{ fontSize: '0.72rem', color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}
-                >
-                  Get Free Key ↗
-                </a>
-              </label>
-              <div style={{ position: 'relative' }}>
+              <div className="form-group">
+                <label>Supabase Project URL</label>
                 <input
-                  type={showGeminiKey ? 'text' : 'password'}
+                  type="url"
                   className="form-control"
-                  value={form.gemini_api_key || ''}
-                  onChange={e => setForm({ ...form, gemini_api_key: e.target.value })}
-                  placeholder="AIzaSy..."
-                  style={{ paddingRight: '2.5rem' }}
+                  value={form.supabase_url||''}
+                  onChange={e => setForm({ ...form, supabase_url: e.target.value })}
+                  placeholder="https://xxxxxxxxxxxx.supabase.co"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowGeminiKey(v => !v)}
-                  style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-                >
-                  {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
               </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem', lineHeight: 1.4 }}>
-                Powers instant photo recognition: <strong>Snap-to-Cart</strong>, <strong>Visual Price Check</strong>, and <strong>Front+Back Book Registration</strong>. 100% free with generous daily limits.
-              </div>
-            </div>
 
-            <button
-              type="button"
-              className="btn-secondary"
-              style={{ width: '100%', justifyContent: 'center' }}
-              onClick={handleTestGemini}
-              disabled={geminiTestStatus === 'loading' || !form.gemini_api_key}
-            >
-              {geminiTestStatus === 'loading' && <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />}
-              {geminiTestStatus === 'success' && <Check size={16} color="var(--accent-emerald)" />}
-              {geminiTestStatus === 'error'   && <AlertCircle size={16} color="var(--accent-rose)" />}
-              {geminiTestStatus === 'idle'    && <Sparkles size={16} color="var(--accent-purple)" />}
-              {geminiTestStatus === 'loading' ? 'Verifying Key...' : geminiTestStatus === 'success' ? 'Connected & Verified!' : geminiTestStatus === 'error' ? 'Verification Failed' : 'Test AI Vision Key'}
-            </button>
-
-            {geminiTestMsg && (
-              <div style={{
-                marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: 'var(--radius-md)', fontSize: '0.78rem', lineHeight: 1.45, fontWeight: 600,
-                background: geminiTestStatus === 'success' ? 'var(--accent-emerald-light)' : 'var(--accent-rose-light)',
-                border: `1px solid ${geminiTestStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'}`,
-                color: geminiTestStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
-              }}>
-                {geminiTestMsg}
+              <div className="form-group">
+                <label>Supabase Anon / Public Key</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    className="form-control"
+                    value={form.supabase_anon_key||''}
+                    onChange={e => setForm({ ...form, supabase_anon_key: e.target.value })}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    style={{ paddingRight: '2.5rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(v => !v)}
+                    style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                  >
+                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                  Found in Supabase → Project Settings → API → anon public key
+                </div>
               </div>
-            )}
-          </section>
 
-          {/* Tax Breakdown */}
-          <section>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <Percent size={14} /> Tax & Levy Breakdown
-              </div>
-              <button type="button" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} onClick={addTaxType}>
-                <Plus size={13} /> Add
+              <button
+                className="btn-secondary"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={handleTestConnection}
+                disabled={testStatus === 'loading' || !form.supabase_url || !form.supabase_anon_key}
+              >
+                {testStatus === 'loading' && <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />}
+                {testStatus === 'success' && <Check size={16} color="var(--accent-emerald)" />}
+                {testStatus === 'error'   && <AlertCircle size={16} color="var(--accent-rose)" />}
+                {testStatus === 'idle'    && <Database size={16} />}
+                {testStatus === 'loading' ? 'Testing...' : testStatus === 'success' ? 'Connected!' : testStatus === 'error' ? 'Connection Failed' : 'Test Connection'}
               </button>
-            </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {(form.tax_types||[]).map((t, idx) => (
-                <div key={t.id||idx} style={{
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  background: 'var(--bg-surface-elevated)',
-                  border: `1px solid ${t.enabled ? 'var(--primary)' : 'var(--border-light)'}`,
-                  padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-md)'
+              {testMsg && (
+                <div style={{
+                  marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: 'var(--radius-md)', fontSize: '0.78rem', lineHeight: 1.45, fontWeight: 600,
+                  background: testStatus === 'success' ? 'var(--accent-emerald-light)' : 'var(--accent-rose-light)',
+                  border: `1px solid ${testStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'}`,
+                  color: testStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
                 }}>
-                  <input type="checkbox" checked={t.enabled} onChange={() => toggleTaxItem(idx)} style={{ width: 17, height: 17, accentColor: 'var(--primary)' }} />
-                  <input type="text" className="form-control" value={t.name} onChange={e => updateTaxItem(idx, 'name', e.target.value)} style={{ flex: 1, padding: '0.3rem 0.5rem', fontSize: '0.85rem' }} />
-                  <input type="number" step="0.1" className="form-control" value={t.rate_pct} onChange={e => updateTaxItem(idx, 'rate_pct', parseFloat(e.target.value)||0)} style={{ width: 65, padding: '0.3rem', textAlign: 'center', fontSize: '0.85rem' }} />
-                  <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>%</span>
-                  <button type="button" className="btn-icon" style={{ width: 28, height: 28 }} onClick={() => removeTaxType(idx)}><Trash2 size={14} color="var(--accent-rose)" /></button>
+                  {testMsg}
                 </div>
-              ))}
-            </div>
+              )}
 
-            <div style={{ marginTop: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', background: 'var(--primary-light)', padding: '0.45rem 0.75rem', borderRadius: 'var(--radius-md)' }}>
-              <span>Total Active Rate:</span>
-              <span>{totalTaxPct.toFixed(1)}%</span>
-            </div>
-          </section>
+              {/* Device Setup QR Code */}
+              {form.supabase_url && form.supabase_anon_key && (
+                <div style={{ marginTop: '0.75rem' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ width: '100%', justifyContent: 'center', gap: '0.5rem' }}
+                    onClick={() => setShowQR(v => !v)}
+                  >
+                    <Smartphone size={16} />
+                    {showQR ? 'Hide' : 'Connect a New Device (QR Code)'}
+                  </button>
 
-          {/* Database Maintenance — Barcode Clean Reset */}
-          <section>
-            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Database size={14} /> Database Maintenance
-            </div>
+                  {showQR && (() => {
+                    const payload = btoa(JSON.stringify({
+                      u: form.supabase_url,
+                      k: form.supabase_anon_key
+                    }));
+                    const setupUrl = `${window.location.origin}${window.location.pathname}#setup=${payload}`;
+                    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(setupUrl)}`;
 
-            <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-main)' }}>🧹 Clean Reset All Barcodes</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem', lineHeight: 1.5 }}>
-                  Wipes the barcode field for <strong>every product</strong> in your database, setting them all to empty. Book titles, prices, stock, and all other data are preserved. Use this to start fresh barcode assignment one-by-one.
+                    return (
+                      <div style={{
+                        marginTop: '0.75rem',
+                        background: 'var(--bg-surface-elevated)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '1rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '0.75rem',
+                        textAlign: 'center'
+                      }}>
+                        <img
+                          src={qrApiUrl}
+                          alt="Device Setup QR Code"
+                          style={{ width: 180, height: 180, borderRadius: '8px', background: '#fff', padding: '6px' }}
+                        />
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                          Scan with any phone/tablet to auto-connect to this database.
+                          <br />Credentials are encoded locally — never sent to any server.
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ fontSize: '0.78rem', padding: '0.4rem 0.9rem', gap: '0.4rem' }}
+                          onClick={() => {
+                            navigator.clipboard.writeText(setupUrl).then(() => {
+                              setQrCopied(true);
+                              setTimeout(() => setQrCopied(false), 2000);
+                            });
+                          }}
+                        >
+                          {qrCopied ? <Check size={14} color="var(--accent-emerald)" /> : <Copy size={14} />}
+                          {qrCopied ? 'Copied!' : 'Copy Setup Link'}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
+              )}
+            </section>
+          )}
+
+          {/* AI Vision (Google Gemini) (Admin Only) */}
+          {isAdmin && (
+            <section>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Sparkles size={14} color="var(--accent-purple)" /> AI Vision & Book Recognition
               </div>
 
-              {barcodeWipeStatus === 'success' && (
-                <div style={{ background: 'var(--accent-emerald-light)', color: 'var(--accent-emerald)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Check size={14} /> {barcodeWipeMsg}
+              <div className="form-group" style={{ marginBottom: '0.6rem' }}>
+                <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Google Gemini API Key</span>
+                  <a 
+                    href="https://aistudio.google.com/app/apikey" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ fontSize: '0.72rem', color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}
+                  >
+                    Get Free Key ↗
+                  </a>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showGeminiKey ? 'text' : 'password'}
+                    className="form-control"
+                    value={form.gemini_api_key || ''}
+                    onChange={e => setForm({ ...form, gemini_api_key: e.target.value })}
+                    placeholder="AIzaSy..."
+                    style={{ paddingRight: '2.5rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGeminiKey(v => !v)}
+                    style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                  >
+                    {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
-              )}
-              {barcodeWipeStatus === 'error' && (
-                <div style={{ background: 'var(--accent-rose-light)', color: 'var(--accent-rose)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <AlertCircle size={14} /> {barcodeWipeMsg}
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.3rem', lineHeight: 1.4 }}>
+                  Powers instant photo recognition: <strong>Snap-to-Cart</strong>, <strong>Visual Price Check</strong>, and <strong>Front+Back Book Registration</strong>. 100% free with generous daily limits.
                 </div>
-              )}
+              </div>
 
               <button
                 type="button"
-                className="btn-danger"
-                disabled={barcodeWipeStatus === 'loading'}
-                onClick={async () => {
-                  const confirmed = window.confirm(
-                    '⚠️ CONFIRM BARCODE RESET\n\nThis will clear the barcode field for ALL products in your database.\n\n• Book titles, prices, stock quantities, and publishers are NOT affected.\n• You will need to re-scan or manually assign a barcode to each product.\n\nAre you absolutely sure you want to continue?'
-                  );
-                  if (!confirmed) return;
-                  setBarcodeWipeStatus('loading');
-                  setBarcodeWipeMsg('');
-                  try {
-                    await wipeAllProductBarcodes();
-                    setBarcodeWipeStatus('success');
-                    setBarcodeWipeMsg('All product barcodes have been cleared successfully.');
-                  } catch (err) {
-                    setBarcodeWipeStatus('error');
-                    setBarcodeWipeMsg('Failed to clear barcodes: ' + (err.message || 'Unknown error'));
-                  }
-                }}
-                style={{ alignSelf: 'flex-start', fontSize: '0.8rem', padding: '0.45rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                className="btn-secondary"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={handleTestGemini}
+                disabled={geminiTestStatus === 'loading' || !form.gemini_api_key}
               >
-                {barcodeWipeStatus === 'loading' ? (
-                  <><RefreshCw size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> Wiping...</>
-                ) : (
-                  <><Trash2 size={14} /> Wipe All Barcodes</>
-                )}
+                {geminiTestStatus === 'loading' && <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />}
+                {geminiTestStatus === 'success' && <Check size={16} color="var(--accent-emerald)" />}
+                {geminiTestStatus === 'error'   && <AlertCircle size={16} color="var(--accent-rose)" />}
+                {geminiTestStatus === 'idle'    && <Sparkles size={16} color="var(--accent-purple)" />}
+                {geminiTestStatus === 'loading' ? 'Verifying Key...' : geminiTestStatus === 'success' ? 'Connected & Verified!' : geminiTestStatus === 'error' ? 'Verification Failed' : 'Test AI Vision Key'}
               </button>
-            </div>
-          </section>
 
-          {/* Printer */}
+              {geminiTestMsg && (
+                <div style={{
+                  marginTop: '0.6rem', padding: '0.6rem 0.85rem', borderRadius: 'var(--radius-md)', fontSize: '0.78rem', lineHeight: 1.45, fontWeight: 600,
+                  background: geminiTestStatus === 'success' ? 'var(--accent-emerald-light)' : 'var(--accent-rose-light)',
+                  border: `1px solid ${geminiTestStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'}`,
+                  color: geminiTestStatus === 'success' ? 'var(--accent-emerald)' : 'var(--accent-rose)'
+                }}>
+                  {geminiTestMsg}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Tax Breakdown (Admin Only) */}
+          {isAdmin && (
+            <section>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Percent size={14} /> Tax & Levy Breakdown
+                </div>
+                <button type="button" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} onClick={addTaxType}>
+                  <Plus size={13} /> Add
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {(form.tax_types||[]).map((t, idx) => (
+                  <div key={t.id||idx} style={{
+                    display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    background: 'var(--bg-surface-elevated)',
+                    border: `1px solid ${t.enabled ? 'var(--primary)' : 'var(--border-light)'}`,
+                    padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-md)'
+                  }}>
+                    <input type="checkbox" checked={t.enabled} onChange={() => toggleTaxItem(idx)} style={{ width: 17, height: 17, accentColor: 'var(--primary)' }} />
+                    <input type="text" className="form-control" value={t.name} onChange={e => updateTaxItem(idx, 'name', e.target.value)} style={{ flex: 1, padding: '0.3rem 0.5rem', fontSize: '0.85rem' }} />
+                    <input type="number" step="0.1" className="form-control" value={t.rate_pct} onChange={e => updateTaxItem(idx, 'rate_pct', parseFloat(e.target.value)||0)} style={{ width: 65, padding: '0.3rem', textAlign: 'center', fontSize: '0.85rem' }} />
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>%</span>
+                    <button type="button" className="btn-icon" style={{ width: 28, height: 28 }} onClick={() => removeTaxType(idx)}><Trash2 size={14} color="var(--accent-rose)" /></button>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', background: 'var(--primary-light)', padding: '0.45rem 0.75rem', borderRadius: 'var(--radius-md)' }}>
+                <span>Total Active Rate:</span>
+                <span>{totalTaxPct.toFixed(1)}%</span>
+              </div>
+            </section>
+          )}
+
+          {/* Database Maintenance — Barcode Clean Reset (Admin Only) */}
+          {isAdmin && (
+            <section>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Database size={14} /> Database Maintenance
+              </div>
+
+              <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-main)' }}>🧹 Clean Reset All Barcodes</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem', lineHeight: 1.5 }}>
+                    Wipes the barcode field for <strong>every product</strong> in your database, setting them all to empty. Book titles, prices, stock, and all other data are preserved. Use this to start fresh barcode assignment one-by-one.
+                  </div>
+                </div>
+
+                {barcodeWipeStatus === 'success' && (
+                  <div style={{ background: 'var(--accent-emerald-light)', color: 'var(--accent-emerald)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Check size={14} /> {barcodeWipeMsg}
+                  </div>
+                )}
+                {barcodeWipeStatus === 'error' && (
+                  <div style={{ background: 'var(--accent-rose-light)', color: 'var(--accent-rose)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <AlertCircle size={14} /> {barcodeWipeMsg}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="btn-danger"
+                  disabled={barcodeWipeStatus === 'loading'}
+                  onClick={async () => {
+                    const confirmed = window.confirm(
+                      '⚠️ CONFIRM BARCODE RESET\n\nThis will clear the barcode field for ALL products in your database.\n\n• Book titles, prices, stock quantities, and publishers are NOT affected.\n• You will need to re-scan or manually assign a barcode to each product.\n\nAre you absolutely sure you want to continue?'
+                    );
+                    if (!confirmed) return;
+                    setBarcodeWipeStatus('loading');
+                    setBarcodeWipeMsg('');
+                    try {
+                      await wipeAllProductBarcodes();
+                      setBarcodeWipeStatus('success');
+                      setBarcodeWipeMsg('All product barcodes have been cleared successfully.');
+                    } catch (err) {
+                      setBarcodeWipeStatus('error');
+                      setBarcodeWipeMsg('Failed to clear barcodes: ' + (err.message || 'Unknown error'));
+                    }
+                  }}
+                  style={{ alignSelf: 'flex-start', fontSize: '0.8rem', padding: '0.45rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  {barcodeWipeStatus === 'loading' ? (
+                    <><RefreshCw size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> Wiping...</>
+                  ) : (
+                    <><Trash2 size={14} /> Wipe All Barcodes</>
+                  )}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Thermal Printer (Available to All Stations) */}
           <section>
             <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Printer size={14} /> Thermal Printer
@@ -454,15 +505,115 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
             </div>
             <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', padding: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>Bluetooth Printer</div>
+                <div style={{ fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Bluetooth size={14} color="var(--primary)" /> Bluetooth Printer
+                </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{form.printer_bluetooth_name || 'No printer paired'}</div>
               </div>
-              {btStatus === 'connected'
+              {form.printer_bluetooth_name || btStatus === 'connected'
                 ? <button className="btn-danger" style={{ fontSize: '0.78rem' }} onClick={handleBtDisconnect}>Disconnect</button>
                 : <button className="btn-primary" style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }} onClick={handleBtConnect} disabled={btStatus === 'connecting'}>
                     {btStatus === 'connecting' ? 'Pairing...' : 'Pair Printer'}
                   </button>
               }
+            </div>
+          </section>
+
+          {/* Barcode Scanner & Reader (Available to All Stations) */}
+          <section>
+            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <BarcodeIcon size={14} /> Barcode Scanner & Reader
+            </div>
+
+            {/* Bluetooth Scanner Pairing Card */}
+            <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', padding: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Bluetooth size={14} color="var(--primary)" /> Bluetooth Handheld Scanner
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {form.scanner_bluetooth_name || 'No scanner paired'}
+                </div>
+              </div>
+              {form.scanner_bluetooth_name || scannerBtStatus === 'connected'
+                ? <button className="btn-danger" style={{ fontSize: '0.78rem' }} onClick={handleScannerBtDisconnect}>Disconnect</button>
+                : <button className="btn-primary" style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }} onClick={handleScannerBtConnect} disabled={scannerBtStatus === 'connecting'}>
+                    {scannerBtStatus === 'connecting' ? 'Pairing...' : 'Pair Scanner'}
+                  </button>
+              }
+            </div>
+
+            {/* Scanner Beep Sound Toggle */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)',
+              borderRadius: 'var(--radius-md)', padding: '0.65rem 0.75rem', marginBottom: '0.6rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Volume2 size={15} color="var(--primary)" />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>Scan Audio Feedback</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Play audio beep upon reading barcodes</div>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={form.scanner_beep_enabled !== false}
+                onChange={e => {
+                  const val = e.target.checked;
+                  setForm(f => ({ ...f, scanner_beep_enabled: val }));
+                  if (val) playBeep();
+                }}
+                style={{ width: 18, height: 18, accentColor: 'var(--primary)', cursor: 'pointer' }}
+              />
+            </div>
+
+            {/* Hardware Scanner Live Test Box */}
+            <div style={{
+              background: 'var(--bg-app)', border: '1px dashed var(--border-light)',
+              borderRadius: 'var(--radius-md)', padding: '0.65rem 0.75rem'
+            }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.3rem' }}>
+                <Scan size={13} /> Test Scanner Input (USB / Bluetooth / Wireless)
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  type="text"
+                  className="form-control"
+                  style={{ fontSize: '0.82rem', padding: '0.35rem 0.6rem' }}
+                  placeholder="Scan any book barcode here to test..."
+                  value={scannerTestInput}
+                  onChange={e => setScannerTestInput(e.target.value)}
+                  onKeyDown={handleScannerTestKeyDown}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', whiteSpace: 'nowrap' }}
+                  onClick={() => {
+                    const scanned = scannerTestInput.trim();
+                    if (scanned) {
+                      setScannerLastScanned(scanned);
+                      if (form.scanner_beep_enabled !== false) playBeep();
+                      setScannerTestInput('');
+                    }
+                  }}
+                >
+                  Test
+                </button>
+              </div>
+              {scannerLastScanned && (
+                <div style={{
+                  marginTop: '0.4rem', fontSize: '0.74rem', color: 'var(--accent-emerald)',
+                  background: 'var(--accent-emerald-light)', padding: '0.3rem 0.55rem',
+                  borderRadius: 'var(--radius-sm)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem'
+                }}>
+                  <Check size={13} /> Successfully read: <code>{scannerLastScanned}</code>
+                </div>
+              )}
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.35 }}>
+                💡 Tip: Most Bluetooth and USB handheld scanners act as wireless keyboard devices. You can also pair them in your OS Bluetooth settings and test scanning right here.
+              </div>
             </div>
           </section>
         </div>

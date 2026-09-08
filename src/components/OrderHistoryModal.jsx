@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { X, Search, Clock, Printer, RotateCcw, FileText, CheckCircle2, ChevronRight, Download, MessageSquare, Trash2 } from 'lucide-react';
+import { X, Search, Clock, Printer, RotateCcw, FileText, CheckCircle2, ChevronRight, Download, MessageSquare, Trash2, User } from 'lucide-react';
 import { fetchOrders, deleteOrder } from '../services/supabaseService';
 import { downloadReceiptPDF, shareReceiptPDFViaWhatsApp } from '../services/pdfService';
 
 export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrder, onSelectRefundOrder, isAdmin, settings = {} }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPeriod, setFilterPeriod] = useState('all');
+  const [selectedCashier, setSelectedCashier] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -18,7 +19,16 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
 
   if (!isOpen) return null;
 
+  const cashiersList = Array.from(
+    new Set(sales.map(s => (s.cashier_name?.trim() || 'Main Cashier')).filter(Boolean))
+  ).sort();
+
   const filteredSales = sales.filter(s => {
+    if (selectedCashier !== 'all') {
+      const orderCashier = s.cashier_name?.trim() || 'Main Cashier';
+      if (orderCashier !== selectedCashier) return false;
+    }
+
     const matchesSearch = (s.order_id||'').toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (s.cashier_name && s.cashier_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
                           (s.items && s.items.some(i => (i.product_name||'').toLowerCase().includes(searchQuery.toLowerCase())));
@@ -48,7 +58,7 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
             <Clock size={20} color="var(--primary)" />
             <div>
               <h3 style={{ fontSize: '1.05rem', fontWeight: 700 }}>Past Sales History & Orders</h3>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Search transactions & reprint receipts</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Reprint any cashier's order receipts & search transactions</div>
             </div>
           </div>
           <button className="btn-icon" onClick={onClose}><X size={18} /></button>
@@ -56,7 +66,7 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           
-          {/* Search & Period Filters */}
+          {/* Search & Period & Cashier Filters */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <div style={{ position: 'relative' }}>
               <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)' }} />
@@ -70,9 +80,9 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
               />
             </div>
 
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
               {[
-                { key: 'all', label: `All Orders (${sales.length})` },
+                { key: 'all', label: `All (${sales.length})` },
                 { key: 'today', label: 'Today' },
                 { key: 'week', label: 'This Week' }
               ].map(f => (
@@ -80,12 +90,12 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                   key={f.key}
                   onClick={() => setFilterPeriod(f.key)}
                   style={{
-                    padding: '0.35rem 0.75rem',
+                    padding: '0.3rem 0.65rem',
                     borderRadius: 'var(--radius-full)',
                     background: filterPeriod === f.key ? 'var(--primary)' : 'var(--bg-surface-elevated)',
                     color: filterPeriod === f.key ? '#fff' : 'var(--text-muted)',
                     border: '1px solid var(--border-light)',
-                    fontSize: '0.78rem',
+                    fontSize: '0.75rem',
                     fontWeight: 600,
                     cursor: 'pointer'
                   }}
@@ -93,6 +103,25 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                   {f.label}
                 </button>
               ))}
+
+              {/* Cashier Filter Dropdown */}
+              {cashiersList.length > 0 && (
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <User size={13} color="var(--text-muted)" />
+                  <select
+                    className="form-control"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', height: 'auto', borderRadius: 'var(--radius-full)' }}
+                    value={selectedCashier}
+                    onChange={e => setSelectedCashier(e.target.value)}
+                    title="Filter by cashier"
+                  >
+                    <option value="all">All Cashiers</option>
+                    {cashiersList.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -123,7 +152,7 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                   {/* Summary Bar */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 800, fontSize: '0.9rem' }}>#{order.order_id}</span>
                         {isRefund && (
                           <span style={{
@@ -139,9 +168,17 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                         }}>
                           {order.payment_method}
                         </span>
+                        <span style={{
+                          fontSize: '0.68rem', fontWeight: 600,
+                          padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)',
+                          background: 'var(--bg-app)', border: '1px solid var(--border-light)',
+                          color: 'var(--text-main)'
+                        }}>
+                          👤 {order.cashier_name || 'Main Cashier'}
+                        </span>
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {new Date(order.timestamp).toLocaleString()} • Cashier: {order.cashier_name || 'Main Cashier'}
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                        {new Date(order.timestamp).toLocaleString()}
                       </div>
                     </div>
 
@@ -151,10 +188,10 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                         fontSize: '1.05rem',
                         color: isRefund ? 'var(--accent-rose)' : 'var(--accent-emerald)'
                       }}>
-                        {currencySymbol}{order.total.toFixed(2)}
+                        {currencySymbol}{(Number(order.total) || 0).toFixed(2)}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)' }}>
-                        {order.items.reduce((a, b) => a + b.quantity, 0)} books
+                        {(order.items || []).reduce((a, b) => a + (Number(b.quantity) || 1), 0)} books
                       </div>
                     </div>
                   </div>
@@ -172,18 +209,18 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                       <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' }}>
                         Itemized Books:
                       </div>
-                      {order.items.map((item, idx) => (
+                      {(order.items || []).map((item, idx) => (
                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
                           <span>{item.product_name} × {item.quantity}</span>
-                          <span style={{ fontWeight: 700 }}>{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+                          <span style={{ fontWeight: 700 }}>{currencySymbol}{((Number(item.price)||0) * (Number(item.quantity)||1)).toFixed(2)}</span>
                         </div>
                       ))}
 
                       {/* Tax & Discount Breakdown if applied */}
-                      {(order.discount > 0 || order.apply_tax) && (
+                      {((Number(order.discount) || 0) > 0 || order.apply_tax) && (
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-subtle)', borderTop: '1px dotted var(--border-subtle)', paddingTop: '4px', marginTop: '2px' }}>
-                          {order.discount > 0 && <div>Discount: -{currencySymbol}{order.discount.toFixed(2)}</div>}
-                          {order.apply_tax && <div>VAT ({order.tax_rate_pct}%): +{currencySymbol}{order.tax_amount.toFixed(2)}</div>}
+                          {(Number(order.discount) || 0) > 0 && <div>Discount: -{currencySymbol}{(Number(order.discount)||0).toFixed(2)}</div>}
+                          {order.apply_tax && <div>VAT ({order.tax_rate_pct}%): +{currencySymbol}{(Number(order.tax_amount)||0).toFixed(2)}</div>}
                         </div>
                       )}
 

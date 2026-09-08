@@ -533,6 +533,9 @@ export function initHardwareBarcodeListener(onBarcodeScanned) {
         buffer = '';
         if (code.length >= 3 && onBarcodeScanned) {
           e.preventDefault();
+          try {
+            playBeep(false);
+          } catch {}
           onBarcodeScanned(code);
         }
       } else {
@@ -550,3 +553,50 @@ export function initHardwareBarcodeListener(onBarcodeScanned) {
   window.addEventListener('keydown', handleKeyDown, true);
   return () => window.removeEventListener('keydown', handleKeyDown, true);
 }
+
+// ─── Web Bluetooth Barcode Scanner ───────────────────────────────────────────
+let scannerBluetoothDevice = null;
+let scannerGattServer = null;
+
+export const connectBluetoothScanner = async () => {
+  if (!navigator.bluetooth) {
+    throw new Error('Web Bluetooth API is not supported in this browser. Please use Chrome on Android, Windows, or a Bluetooth-enabled browser.');
+  }
+
+  try {
+    scannerBluetoothDevice = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [
+        'human_interface_device',
+        'battery_service',
+        'device_information',
+        '00001812-0000-1000-8000-00805f9b34fb',
+        '0000ffe0-0000-1000-8000-00805f9b34fb',
+        '0000ff00-0000-1000-8000-00805f9b34fb'
+      ]
+    });
+
+    if (scannerBluetoothDevice.gatt) {
+      try {
+        scannerGattServer = await scannerBluetoothDevice.gatt.connect();
+      } catch (e) {
+        console.log('Bluetooth scanner GATT notice:', e.message);
+      }
+    }
+
+    const deviceName = scannerBluetoothDevice.name || 'Bluetooth Barcode Scanner';
+    return { name: deviceName, status: 'connected' };
+  } catch (err) {
+    console.error('Bluetooth scanner error:', err);
+    throw err;
+  }
+};
+
+export const disconnectBluetoothScanner = () => {
+  if (scannerGattServer && scannerGattServer.connected) {
+    scannerGattServer.disconnect();
+  }
+  scannerBluetoothDevice = null;
+  scannerGattServer = null;
+};
+

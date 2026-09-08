@@ -22,7 +22,8 @@ export default function SellingInterface({
   onQuickRegister,
   heldOrders = [],
   onHoldCurrentCart,
-  onOpenHeldOrders
+  onOpenHeldOrders,
+  onOpenOrderHistory
 }) {
   const [sellViewMode, setSellViewMode] = useState(() => {
     return localStorage.getItem('brushwell_sell_mode') || 'camera';
@@ -590,6 +591,33 @@ export default function SellingInterface({
                       {heldOrders.length}
                     </span>
                   )}
+                </button>
+              )}
+
+              {/* Past Orders & Receipt Reprint Button */}
+              {onOpenOrderHistory && (
+                <button
+                  type="button"
+                  onClick={onOpenOrderHistory}
+                  style={{
+                    padding: '0.45rem 0.75rem',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-light)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
+                  }}
+                  title="View & reprint past order receipts (all cashiers)"
+                >
+                  <ArrowRight size={15} />
+                  <span>Past Orders</span>
                 </button>
               )}
 
