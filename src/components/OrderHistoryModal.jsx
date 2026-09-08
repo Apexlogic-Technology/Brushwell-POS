@@ -26,8 +26,8 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
 
     const ts = s.created_at || s.timestamp;
     if (filterPeriod === 'today') {
-      const todayStr = new Date().toISOString().split('T')[0];
-      return ts && ts.startsWith(todayStr);
+      const todayStr = new Date().toLocaleDateString();
+      return ts && new Date(ts).toLocaleDateString() === todayStr;
     }
     if (filterPeriod === 'week') {
       const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7);
@@ -36,6 +36,8 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
 
     return true;
   });
+
+  const currencySymbol = '¢';
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -98,7 +100,7 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto' }}>
             {filteredSales.map(order => {
               const isSelected = selectedOrder?.order_id === order.order_id;
-              const isRefund = order.is_refund;
+              const isRefund = order.order_type === 'refund' || Boolean(order.is_refund) || String(order.order_id || '').startsWith('REF-');
 
               return (
                 <div
@@ -149,7 +151,7 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                         fontSize: '1.05rem',
                         color: isRefund ? 'var(--accent-rose)' : 'var(--accent-emerald)'
                       }}>
-                        GH₵{order.total.toFixed(2)}
+                        {currencySymbol}{order.total.toFixed(2)}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)' }}>
                         {order.items.reduce((a, b) => a + b.quantity, 0)} books
@@ -173,15 +175,15 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                       {order.items.map((item, idx) => (
                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
                           <span>{item.product_name} × {item.quantity}</span>
-                          <span style={{ fontWeight: 700 }}>GH₵{(item.price * item.quantity).toFixed(2)}</span>
+                          <span style={{ fontWeight: 700 }}>{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
                         </div>
                       ))}
 
                       {/* Tax & Discount Breakdown if applied */}
                       {(order.discount > 0 || order.apply_tax) && (
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-subtle)', borderTop: '1px dotted var(--border-subtle)', paddingTop: '4px', marginTop: '2px' }}>
-                          {order.discount > 0 && <div>Discount: -GH₵{order.discount.toFixed(2)}</div>}
-                          {order.apply_tax && <div>VAT ({order.tax_rate_pct}%): +GH₵{order.tax_amount.toFixed(2)}</div>}
+                          {order.discount > 0 && <div>Discount: -{currencySymbol}{order.discount.toFixed(2)}</div>}
+                          {order.apply_tax && <div>VAT ({order.tax_rate_pct}%): +{currencySymbol}{order.tax_amount.toFixed(2)}</div>}
                         </div>
                       )}
 
@@ -269,7 +271,7 @@ export default function OrderHistoryModal({ isOpen, onClose, onSelectReprintOrde
                             }}
                             onClick={async (e) => {
                               e.stopPropagation();
-                              const confirmMsg = `Are you sure you want to permanently delete Order #${order.order_id} (GH₵${order.total?.toFixed(2)})?\n\nThis will automatically restore stock for the books. This action cannot be undone.`;
+                              const confirmMsg = `Are you sure you want to permanently delete Order #${order.order_id} (${currencySymbol}${order.total?.toFixed(2)})?\n\nThis will automatically restore stock for the books. This action cannot be undone.`;
                               if (!window.confirm(confirmMsg)) return;
                               try {
                                 await deleteOrder(order.order_id, { restoreStock: true });

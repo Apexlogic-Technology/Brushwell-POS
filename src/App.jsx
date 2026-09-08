@@ -56,6 +56,7 @@ export default function App() {
   const [isStockReceiveOpen, setIsStockReceiveOpen] = useState(false);
   const [isOrderHistoryOpen, setIsOrderHistoryOpen] = useState(false);
   const [isRefundOpen, setIsRefundOpen] = useState(false);
+  const [refundTargetOrder, setRefundTargetOrder] = useState(null);
   const [isOutboundLoansOpen, setIsOutboundLoansOpen] = useState(false);
   const [isHeldOrdersOpen, setIsHeldOrdersOpen] = useState(false);
   const [outboundLoansCount, setOutboundLoansCount] = useState(0);
@@ -251,6 +252,7 @@ export default function App() {
   };
 
   const handleRefundOrder = (order) => {
+    setRefundTargetOrder(order);
     setIsOrderHistoryOpen(false);
     setIsRefundOpen(true);
   };
@@ -529,6 +531,7 @@ export default function App() {
             onOpenSettings={() => setIsSettingsOpen(true)}
             initialBarcode={prefilledBarcode}
             onClearInitialBarcode={() => setPrefilledBarcode(null)}
+            settings={settings}
           />
         )}
         {activeTab === 'reports' && isAdmin && (
@@ -571,11 +574,13 @@ export default function App() {
         onClose={() => setIsScannerOpen(false)}
         onScanSuccess={handleScanResult}
         products={products}
+        currencySymbol="¢"
       />
       <BarcodeGeneratorModal
         isOpen={isBarcodeGenOpen}
         onClose={() => setIsBarcodeGenOpen(false)}
         product={barcodeGenProduct}
+        currencySymbol="¢"
       />
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -598,8 +603,13 @@ export default function App() {
       />
       <RefundModal
         isOpen={isRefundOpen}
-        onClose={() => setIsRefundOpen(false)}
+        onClose={() => {
+          setIsRefundOpen(false);
+          setRefundTargetOrder(null);
+        }}
         onRefundSuccess={loadData}
+        settings={settings}
+        initialOrder={refundTargetOrder}
       />
       <ReceiptModal
         isOpen={isReceiptOpen}
@@ -625,7 +635,7 @@ export default function App() {
         onDelete={deleteHeldOrder}
         onHoldCurrent={(priceMode) => holdCurrentCart(cart, priceMode)}
         hasActiveCart={cart.length > 0}
-        currencySymbol={settings.currency_symbol || 'GH₵'}
+        currencySymbol="¢"
       />
       <BarcodeDisambiguationModal
         isOpen={Boolean(disambigData)}
@@ -636,7 +646,7 @@ export default function App() {
           setDisambigData(null);
         }}
         onClose={() => setDisambigData(null)}
-        currencySymbol={settings?.currency_symbol || 'GH₵'}
+        currencySymbol="¢"
       />
     </div>
   );

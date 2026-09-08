@@ -43,10 +43,13 @@ export default function ProductManagement({
   onOpenStockReceive,
   onOpenSettings,
   initialBarcode = null,
-  onClearInitialBarcode
+  onClearInitialBarcode,
+  settings = {}
 }) {
   const safeProducts = Array.isArray(products) ? products.filter(Boolean) : [];
   const safeCategories = Array.isArray(categories) ? categories.filter(Boolean) : [];
+  const currencySymbol = '¢';
+
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all'); // 'all', 'low_stock', 'expiring'
@@ -1056,11 +1059,11 @@ export default function ProductManagement({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <div style={{ textAlign: 'right', minWidth: '70px' }}>
                       <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.92rem' }}>
-                        GH₵{parseFloat(product.retail_price || 0).toFixed(2)}
+                        {currencySymbol}{parseFloat(product.retail_price || 0).toFixed(2)}
                       </div>
                       {product.wholesale_price && parseFloat(product.wholesale_price) > 0 && parseFloat(product.wholesale_price) !== parseFloat(product.retail_price) && (
                         <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                          WS: GH₵{parseFloat(product.wholesale_price).toFixed(2)}
+                          WS: {currencySymbol}{parseFloat(product.wholesale_price).toFixed(2)}
                         </div>
                       )}
                     </div>
@@ -1170,7 +1173,7 @@ export default function ProductManagement({
                         </span>
                       </td>
                       <td style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
-                        GH₵{parseFloat(product.retail_price || 0).toFixed(2)}
+                        {currencySymbol}{parseFloat(product.retail_price || 0).toFixed(2)}
                       </td>
                       <td>
                         <span style={{
@@ -1318,7 +1321,7 @@ export default function ProductManagement({
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--primary)' }}>
-                        GH₵ {parseFloat(product.retail_price || 0).toFixed(2)}
+                        {currencySymbol} {parseFloat(product.retail_price || 0).toFixed(2)}
                       </span>
 
                       <span style={{
@@ -1451,7 +1454,7 @@ export default function ProductManagement({
 
                 <div className="grid-2">
                   <div className="form-group">
-                    <label>Retail Price (GH₵) *</label>
+                    <label>Retail Price ({currencySymbol}) *</label>
                     <input
                       type="number"
                       step="0.01"
@@ -1472,7 +1475,7 @@ export default function ProductManagement({
                   </div>
 
                   <div className="form-group">
-                    <label>Wholesale Price (GH₵)</label>
+                    <label>Wholesale Price ({currencySymbol})</label>
                     <input
                       type="number"
                       step="0.01"
@@ -1881,7 +1884,7 @@ export default function ProductManagement({
                           <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                             <td style={{ padding: '0.4rem' }}>{r.product_name}</td>
                             <td style={{ padding: '0.4rem' }}>{r.category_name}</td>
-                            <td style={{ padding: '0.4rem' }}>GH₵{r.retail_price}</td>
+                            <td style={{ padding: '0.4rem' }}>{currencySymbol}{r.retail_price}</td>
                             <td style={{ padding: '0.4rem' }}>{r.barcode}</td>
                           </tr>
                         ))}
@@ -1945,14 +1948,20 @@ export default function ProductManagement({
               </div>
 
               {bulkMode === 'price' && (
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label>Set Retail Price (GH₵)</label>
-                    <input type="number" step="0.01" className="form-control" placeholder="e.g. 50.00" value={bulkRetailPrice} onChange={e => setBulkRetailPrice(e.target.value)} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  <div className="grid-2">
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label>Set Retail Price ({currencySymbol})</label>
+                      <input type="number" step="0.01" className="form-control" placeholder="e.g. 50.00" value={bulkRetailPrice} onChange={e => setBulkRetailPrice(e.target.value)} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label>Wholesale % of Retail</label>
+                      <input type="number" className="form-control" placeholder="80" value={bulkWholesalePct} onChange={e => { setBulkWholesalePct(e.target.value); setBulkWholesalePrice(''); }} />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Wholesale % of Retail</label>
-                    <input type="number" className="form-control" placeholder="80" value={bulkWholesalePct} onChange={e => setBulkWholesalePct(e.target.value)} />
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Or Exact Wholesale Price ({currencySymbol}) (Optional override)</label>
+                    <input type="number" step="0.01" className="form-control" placeholder="Leave blank to use percentage above" value={bulkWholesalePrice} onChange={e => { setBulkWholesalePrice(e.target.value); if (e.target.value) setBulkWholesalePct(''); }} />
                   </div>
                 </div>
               )}
@@ -1961,6 +1970,50 @@ export default function ProductManagement({
                 <div className="form-group">
                   <label>Set Quantity for Selected Items</label>
                   <input type="number" className="form-control" value={bulkStockQty} onChange={e => setBulkStockQty(e.target.value)} />
+                </div>
+              )}
+
+              {bulkMode === 'category' && (
+                <div className="form-group">
+                  <label>Select or Enter New Category / Grade</label>
+                  <input
+                    type="text"
+                    list="bulk-categories-list"
+                    className="form-control"
+                    placeholder="e.g. Primary School (Class 1 - 6)"
+                    value={bulkCategory}
+                    onChange={e => setBulkCategory(e.target.value)}
+                  />
+                  <datalist id="bulk-categories-list">
+                    {allCategories.map(c => (
+                      <option key={c.id || c.name} value={c.name} />
+                    ))}
+                  </datalist>
+                </div>
+              )}
+
+              {bulkMode === 'publisher' && (
+                <div className="form-group">
+                  <label>Select or Enter Publisher / Author</label>
+                  <input
+                    type="text"
+                    list="bulk-publishers-list"
+                    className="form-control"
+                    placeholder="e.g. Aki-Ola Publications"
+                    value={bulkPublisher}
+                    onChange={e => setBulkPublisher(e.target.value)}
+                  />
+                  <datalist id="bulk-publishers-list">
+                    {allPublishers.map(pub => (
+                      <option key={pub} value={pub} />
+                    ))}
+                  </datalist>
+                </div>
+              )}
+
+              {isBulkSubmitting && bulkTotal > 0 && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Processing: {bulkProgress} / {bulkTotal} products...
                 </div>
               )}
 

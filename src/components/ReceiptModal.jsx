@@ -18,7 +18,7 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
 
   if (!isOpen || !order) return null;
 
-  const currencySymbol = settings.currency_symbol || 'GH₵';
+  const currencySymbol = '¢';
 
   const handleBluetoothPrint = async () => {
     setBtStatus('printing');
@@ -67,6 +67,20 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
     }
   };
 
+  const handleOpenUnsavedWhatsAppChat = () => {
+    const cleanPhone = formatWhatsAppPhone(phoneInput || order.customer_phone);
+    if (!cleanPhone) {
+      alert("Please enter the customer's phone number first.");
+      return;
+    }
+    // Step 1: Download the PDF so it's ready on device
+    downloadReceiptPDF(order, settings);
+    // Step 2: Open direct WhatsApp conversation with unsaved number
+    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}`;
+    window.open(url, '_blank');
+    setPdfSuccessNotice('📥 PDF downloaded! WhatsApp chat opened — tap 📎 to attach the PDF.');
+    setTimeout(() => setPdfSuccessNotice(''), 7000);
+  };
 
   const generateReceiptText = () => {
     const dateStr = new Date(order.timestamp || order.created_at || Date.now()).toLocaleString();
@@ -113,48 +127,50 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
 
         <div className="modal-body">
           
-          {/* Receipt Preview */}
+          {/* Receipt Preview (Unified Sans-Serif Typography matching PDF) */}
           <div style={{
             background: '#ffffff',
-            color: '#000',
-            fontFamily: "'Courier New', Courier, monospace",
+            color: '#0f172a',
+            fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             fontSize: '12px',
-            padding: '1rem',
+            padding: '1.25rem 1rem',
             borderRadius: 'var(--radius-md)',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-            border: '1px solid #ddd',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+            border: '1px solid var(--border-light)',
             marginBottom: '1rem'
           }}>
             {/* Header */}
-            <div style={{ textAlign: 'center', borderBottom: '1px dashed #999', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>
-              <div style={{ fontSize: '15px', fontWeight: 'bold' }}>{settings.store_name || 'BRUSHWELL BOOKS'}</div>
-              <div style={{ fontSize: '10px', color: '#555' }}>Bookshop Mobile POS</div>
+            <div style={{ textAlign: 'center', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.65rem', marginBottom: '0.65rem' }}>
+              <div style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>{settings.store_name || 'BRUSHWELL BOOKS'}</div>
+              <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Official Sales Receipt</div>
+              {settings.store_address && <div style={{ fontSize: '10px', color: '#64748b' }}>{settings.store_address}</div>}
+              {settings.store_phone && <div style={{ fontSize: '10px', color: '#64748b' }}>Tel: {settings.store_phone}</div>}
             </div>
 
-            <div style={{ marginBottom: '0.5rem' }}>
-              <div>Order #: <strong>{order.order_id}</strong></div>
+            <div style={{ marginBottom: '0.65rem', fontSize: '11px', lineHeight: '1.5' }}>
+              <div>Receipt #: <strong>{order.order_id}</strong></div>
               <div>Date: {new Date(order.timestamp || order.created_at || Date.now()).toLocaleString()}</div>
               <div>Customer: <strong>{order.customer_name || 'Walk-in Customer'}</strong></div>
               {order.customer_phone && <div>Phone: {order.customer_phone}</div>}
               <div>Cashier: {order.cashier_name}</div>
-              <div>Tier: <strong>{order.price_mode === 'wholesale' ? 'WHOLESALE' : 'RETAIL'}</strong></div>
+              <div>Pricing Tier: <strong>{order.price_mode === 'wholesale' ? 'WHOLESALE' : 'RETAIL'}</strong></div>
             </div>
 
-            <div style={{ borderTop: '1px dashed #999', borderBottom: '1px dashed #999', padding: '0.4rem 0', margin: '0.4rem 0' }}>
+            <div style={{ borderTop: '1px dashed #cbd5e1', borderBottom: '1px dashed #cbd5e1', padding: '0.45rem 0', margin: '0.5rem 0' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
                 <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left' }}>Item</th>
-                    <th style={{ textAlign: 'center' }}>Qty</th>
-                    <th style={{ textAlign: 'right' }}>Total</th>
+                  <tr style={{ color: '#475569', borderBottom: '1px solid #f1f5f9' }}>
+                    <th style={{ textAlign: 'left', paddingBottom: '4px' }}>Item</th>
+                    <th style={{ textAlign: 'center', paddingBottom: '4px' }}>Qty</th>
+                    <th style={{ textAlign: 'right', paddingBottom: '4px' }}>Total</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(order.items || []).map((item, i) => (
                     <tr key={i}>
-                      <td style={{ paddingTop: '3px', maxWidth: '140px' }}>{item.product_name}</td>
-                      <td style={{ textAlign: 'center' }}>{item.quantity}</td>
-                      <td style={{ textAlign: 'right' }}>{currencySymbol}{(item.price * item.quantity).toFixed(2)}</td>
+                      <td style={{ paddingTop: '4px', maxWidth: '140px', fontWeight: 600 }}>{item.product_name}</td>
+                      <td style={{ textAlign: 'center', paddingTop: '4px' }}>{item.quantity}</td>
+                      <td style={{ textAlign: 'right', paddingTop: '4px', fontWeight: 700 }}>{currencySymbol}{(item.price * item.quantity).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -162,24 +178,27 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
             </div>
 
             {/* Subtotal, Multi-Tax Breakdown & Total */}
-            <div style={{ textAlign: 'right', marginTop: '0.4rem' }}>
+            <div style={{ textAlign: 'right', marginTop: '0.5rem', fontSize: '11.5px', lineHeight: '1.5' }}>
               <div>Subtotal: {currencySymbol}{Number(order.subtotal || 0).toFixed(2)}</div>
-              {order.discount > 0 && <div>Discount: -{currencySymbol}{Number(order.discount).toFixed(2)}</div>}
+              {order.discount > 0 && <div style={{ color: 'var(--accent-rose)' }}>Discount: -{currencySymbol}{Number(order.discount).toFixed(2)}</div>}
               {(order.apply_tax || order.tax_applied) && order.tax_breakdown && order.tax_breakdown.length > 0 ? (
                 order.tax_breakdown.map((t, idx) => (
-                  <div key={idx}>{t.name} ({t.rate_pct}%): +{currencySymbol}{t.amount.toFixed(2)}</div>
+                  <div key={idx} style={{ color: 'var(--primary)' }}>{t.name} ({t.rate_pct}%): +{currencySymbol}{t.amount.toFixed(2)}</div>
                 ))
               ) : (order.apply_tax || order.tax_applied) && (order.tax_amount || order.tax_total) > 0 ? (
-                <div>VAT / Tax: +{currencySymbol}{Number(order.tax_total || order.tax_amount).toFixed(2)}</div>
+                <div style={{ color: 'var(--primary)' }}>VAT / Tax: +{currencySymbol}{Number(order.tax_total || order.tax_amount).toFixed(2)}</div>
               ) : null}
-              <div style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '3px' }}>TOTAL: {currencySymbol}{Number(order.total || 0).toFixed(2)}</div>
-              <div style={{ fontSize: '11px' }}>Paid ({order.payment_method || 'Cash'}): {currencySymbol}{Number(order.amount_tendered || order.cash_given || order.total || 0).toFixed(2)}</div>
-              {(order.change_given || order.change_due) > 0 && <div style={{ fontSize: '11px' }}>Change Due: {currencySymbol}{Number(order.change_given || order.change_due).toFixed(2)}</div>}
+              <div style={{ fontSize: '14px', fontWeight: 800, marginTop: '5px', paddingTop: '4px', borderTop: '1px solid #e2e8f0', color: 'var(--primary)' }}>
+                TOTAL PAID: {currencySymbol}{Number(order.total || 0).toFixed(2)}
+              </div>
+              <div style={{ fontSize: '11px', marginTop: '4px', color: '#64748b' }}>Payment Method: {order.payment_method || 'Cash'}</div>
+              <div style={{ fontSize: '11px', color: '#64748b' }}>Amount Paid: {currencySymbol}{Number(order.amount_tendered || order.cash_given || order.total || 0).toFixed(2)}</div>
+              {(order.change_given || order.change_due) > 0 && <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: 700 }}>Change Due: {currencySymbol}{Number(order.change_given || order.change_due).toFixed(2)}</div>}
             </div>
 
-            <div style={{ textAlign: 'center', borderTop: '1px dashed #999', marginTop: '0.5rem', paddingTop: '0.5rem', fontSize: '10px' }}>
-              Thank you for reading with us!<br />
-              {settings.store_name || 'Brushwell Books'} Management
+            <div style={{ textAlign: 'center', borderTop: '1px dashed #cbd5e1', marginTop: '0.65rem', paddingTop: '0.5rem', fontSize: '10px', color: '#64748b' }}>
+              Thank you for shopping with us!<br />
+              {settings.store_name || 'Brushwell Books'} • Digital Receipt
             </div>
           </div>
 
@@ -251,13 +270,41 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
                     alignItems: 'center',
                     gap: '0.35rem'
                   }}
+                  title="Share PDF via WhatsApp share sheet"
                 >
                   <MessageSquare size={16} /> {isSharingPdf ? 'Sharing...' : 'Share PDF'}
                 </button>
               </div>
-              <div style={{ fontSize: '0.69rem', color: 'var(--text-muted)', lineHeight: '1.3', padding: '0.15rem 0.2rem' }}>
-                📱 <b>Mobile:</b> Opens the share sheet — tap WhatsApp to attach the PDF directly.<br/>
-                💻 <b>Desktop:</b> PDF downloads automatically, and WhatsApp opens. Drag the PDF from your Downloads folder into the chat.
+
+              {/* Direct WhatsApp Chat helper for Unsaved Customer Numbers */}
+              {phoneInput.trim() && (
+                <button
+                  type="button"
+                  onClick={handleOpenUnsavedWhatsAppChat}
+                  style={{
+                    background: 'rgba(37, 211, 102, 0.12)',
+                    color: '#15803d',
+                    border: '1px solid rgba(37, 211, 102, 0.35)',
+                    padding: '0.45rem 0.75rem',
+                    borderRadius: 'var(--radius-sm)',
+                    fontWeight: 700,
+                    fontSize: '0.76rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.35rem',
+                    width: '100%'
+                  }}
+                  title="Open direct WhatsApp conversation with unsaved number"
+                >
+                  <Phone size={13} /> Chat with Unsaved # ({formatWhatsAppPhone(phoneInput) || phoneInput})
+                </button>
+              )}
+
+              <div style={{ fontSize: '0.69rem', color: 'var(--text-muted)', lineHeight: '1.35', padding: '0.15rem 0.2rem' }}>
+                📱 <b>Saved Contact:</b> Tap <b>Share PDF</b> ➔ select WhatsApp to attach the PDF directly.<br/>
+                👤 <b>Unsaved Customer:</b> Tap <b>Chat with Unsaved #</b> to open WhatsApp directly without saving them first, then tap 📎 to attach the downloaded PDF.
               </div>
             </div>
 

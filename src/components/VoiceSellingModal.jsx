@@ -16,7 +16,7 @@ const COMMAND_TIPS = [
   '"Checkout"',
 ];
 
-export default function VoiceSellingModal({ isOpen, onClose, products = [], cart, onAddToCart, onRemoveFromCart, onUpdateQty, onSetPriceMode, onApplyDiscount, onToggleTax, onCheckout, onClearCart }) {
+export default function VoiceSellingModal({ isOpen, onClose, products = [], cart, currencySymbol = '¢', onAddToCart, onRemoveFromCart, onUpdateQty, onSetPriceMode, onApplyDiscount, onToggleTax, onCheckout, onClearCart }) {
   const [isListening, setIsListening]       = useState(false);
   const [transcript, setTranscript]         = useState('');
   const [interimText, setInterimText]       = useState('');
@@ -107,7 +107,7 @@ export default function VoiceSellingModal({ isOpen, onClose, products = [], cart
       }
       case 'APPLY_DISCOUNT': {
         if (onApplyDiscount) onApplyDiscount(action.amount);
-        feedbackText = `Applied discount of GH₵ ${action.amount}`;
+        feedbackText = `Applied discount of ${currencySymbol} ${action.amount}`;
         setLastResult({ type: 'info', message: feedbackText, icon: '⊖' });
         break;
       }
@@ -456,13 +456,13 @@ export default function VoiceSellingModal({ isOpen, onClose, products = [], cart
                       `${pendingAction.quantity > 1 ? pendingAction.quantity + ' × ' : ''}${pendingAction.product.product_name}`}
                     {pendingAction.intent === 'REMOVE_FROM_CART' && pendingAction.product && pendingAction.product.product_name}
                     {pendingAction.intent === 'SET_PRICE_MODE' && `${pendingAction.mode === 'wholesale' ? 'Wholesale' : 'Retail'} Mode`}
-                    {pendingAction.intent === 'APPLY_DISCOUNT' && `GH₵ ${pendingAction.amount} Discount`}
+                    {pendingAction.intent === 'APPLY_DISCOUNT' && `${currencySymbol} ${pendingAction.amount} Discount`}
                     {pendingAction.intent === 'CLEAR_CART' && 'Remove All Items'}
                     {pendingAction.intent === 'CHECKOUT' && 'Proceed to Payment'}
                   </div>
                   {pendingAction.intent === 'ADD_TO_CART' && pendingAction.product && (
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      GH₵ {parseFloat(pendingAction.product.retail_price || 0).toFixed(2)} each
+                      {currencySymbol} {parseFloat(pendingAction.product.retail_price || 0).toFixed(2)} each
                       • Stock: {pendingAction.product.stock_quantity}
                     </div>
                   )}

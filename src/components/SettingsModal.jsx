@@ -35,9 +35,10 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
   }, [isOpen]);
 
   const handleSave = () => {
-    saveSettings(form);
+    const updatedForm = { ...form, currency_symbol: '¢' };
+    saveSettings(updatedForm);
     resetSupabaseClient();
-    onSettingsSaved(form);
+    onSettingsSaved(updatedForm);
     onClose();
   };
 
@@ -119,8 +120,22 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved }) {
                 <input type="text" className="form-control" value={form.store_name||''} onChange={e => setForm({ ...form, store_name: e.target.value })} placeholder="Brushwell Books" />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
-                <label>Currency Symbol</label>
-                <input type="text" className="form-control" value={form.currency_symbol||'GH₵'} onChange={e => setForm({ ...form, currency_symbol: e.target.value })} placeholder="GH₵" />
+                <label>Store Currency</label>
+                <div style={{
+                  padding: '0.65rem 0.85rem',
+                  background: 'var(--bg-app)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: 'var(--radius-md)',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  color: 'var(--primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <span>Ghana Cedi (¢)</span>
+                  <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)', background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 800 }}>Default & Only</span>
+                </div>
               </div>
             </div>
             <div className="form-group" style={{ margin: 0 }}>

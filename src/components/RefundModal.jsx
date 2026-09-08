@@ -2,18 +2,39 @@ import React, { useState } from 'react';
 import { X, RotateCcw, Search, Check, RefreshCw, AlertTriangle } from 'lucide-react';
 import { fetchOrders, processRefund } from '../services/supabaseService';
 
-export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
+export default function RefundModal({ isOpen, onClose, onRefundSuccess, settings = {}, initialOrder = null }) {
   const [orderQuery, setOrderQuery] = useState('');
+  const currencySymbol = '¢';
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [returnItems, setReturnItems] = useState({});
   const [reason, setReason] = useState('Customer Return');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sales, setSales] = React.useState([]);
 
+  const selectOrder = (order) => {
+    if (!order) return;
+    setSelectedOrder(order);
+    const initialReturns = {};
+    (order.items || []).forEach(item => {
+      initialReturns[item.id] = item.quantity;
+    });
+    setReturnItems(initialReturns);
+  };
+
   React.useEffect(() => {
-    if (!isOpen) return;
-    fetchOrders({ limit: 200 }).then(data => setSales(data.filter(s => s.order_type !== 'refund')));
-  }, [isOpen]);
+    if (!isOpen) {
+      setSelectedOrder(null);
+      setOrderQuery('');
+      return;
+    }
+    fetchOrders({ limit: 200 }).then(data => {
+      const regularOnly = data.filter(s => s.order_type !== 'refund' && !s.is_refund && !String(s.order_id || '').startsWith('REF-'));
+      setSales(regularOnly);
+    });
+    if (initialOrder) {
+      selectOrder(initialOrder);
+    }
+  }, [isOpen, initialOrder]);
 
   if (!isOpen) return null;
 
@@ -21,15 +42,6 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
     (s.order_id||'').toLowerCase().includes(orderQuery.toLowerCase()) ||
     (s.cashier_name && s.cashier_name.toLowerCase().includes(orderQuery.toLowerCase()))
   );
-
-  const selectOrder = (order) => {
-    setSelectedOrder(order);
-    const initialReturns = {};
-    order.items.forEach(item => {
-      initialReturns[item.id] = item.quantity;
-    });
-    setReturnItems(initialReturns);
-  };
 
   const handleRefundSubmit = async (e) => {
     e.preventDefault();
@@ -146,7 +158,7 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
                           {new Date(order.timestamp).toLocaleString()} • {order.items.length} items
                         </div>
                       </div>
-                      <span style={{ fontWeight: 800, color: 'var(--accent-emerald)' }}>GH₵{order.total.toFixed(2)}</span>
+                      <span style={{ fontWeight: 800, color: 'var(--accent-emerald)' }}>{currencySymbol}{order.total.toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
@@ -170,7 +182,7 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
                       Refunding Order #{selectedOrder.order_id}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      Original Total: GH₵{selectedOrder.total.toFixed(2)}
+                      Original Total: {currencySymbol}{selectedOrder.total.toFixed(2)}
                     </div>
                   </div>
                   <button type="button" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }} onClick={() => setSelectedOrder(null)}>
@@ -245,7 +257,7 @@ export default function RefundModal({ isOpen, onClose, onRefundSuccess }) {
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>GH₵{item.price.toFixed(2)} each {item.is_borrowed && '• No stock restore'}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{currencySymbol}{item.price.toFixed(2)} each {item.is_borrowed && '• No stock restore'}</div>
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>

@@ -28,8 +28,8 @@ function getDateBounds(rangeKey, customDate) {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (rangeKey === 'daily' && customDate) {
-    const d = new Date(customDate);
-    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const [y, m, d] = String(customDate).split('-').map(Number);
+    const start = new Date(y, (m || 1) - 1, d || 1);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
     return { start, end };
@@ -47,6 +47,8 @@ function getDateBounds(rangeKey, customDate) {
 }
 
 export default function Reports({ session, settings }) {
+  const currencySymbol = '¢';
+  const isRefundOrder = (s) => !s ? false : (s.order_type === 'refund' || Boolean(s.is_refund) || String(s.order_id || '').startsWith('REF-'));
   const [activeReport, setActiveReport] = useState('daily'); // 'daily' | 'sales' | 'inventory' | 'borrowed' | 'outbound'
   const [dateRange, setDateRange] = useState('today');
   const [dailyDate, setDailyDate] = useState(new Date().toISOString().split('T')[0]);
@@ -114,16 +116,16 @@ export default function Reports({ session, settings }) {
   }, [allSales, dailyDate, refreshTrigger]);
 
   const dailyRevenue = dailySales.reduce((sum, s) => sum + (s.total || 0), 0);
-  const dailyOrders = dailySales.filter(s => !s.is_refund).length;
-  const dailyItemsSold = dailySales.filter(s => !s.is_refund).reduce((sum, s) => sum + s.items.reduce((a, i) => a + i.quantity, 0), 0);
+  const dailyOrders = dailySales.filter(s => !isRefundOrder(s)).length;
+  const dailyItemsSold = dailySales.filter(s => !isRefundOrder(s)).reduce((sum, s) => sum + (s.items || []).reduce((a, i) => a + i.quantity, 0), 0);
   const dailyCash = dailySales.filter(s => s.payment_method === 'Cash').reduce((sum, s) => sum + s.total, 0);
   const dailyCard = dailySales.filter(s => s.payment_method === 'Card').reduce((sum, s) => sum + s.total, 0);
   const dailyMobile = dailySales.filter(s => s.payment_method === 'Mobile Transfer').reduce((sum, s) => sum + s.total, 0);
 
   // Books breakdown for the day
   const dailyBooksMap = {};
-  dailySales.filter(s => !s.is_refund).forEach(sale => {
-    sale.items.forEach(item => {
+  dailySales.filter(s => !isRefundOrder(s)).forEach(sale => {
+    (sale.items || []).forEach(item => {
       if (!dailyBooksMap[item.id]) dailyBooksMap[item.id] = { name: item.product_name, qty: 0, revenue: 0 };
       dailyBooksMap[item.id].qty += item.quantity;
       dailyBooksMap[item.id].revenue += item.price * item.quantity;
@@ -170,13 +172,13 @@ export default function Reports({ session, settings }) {
   }, [filteredSales, salesPaymentMethod, salesSearchQuery]);
 
   const totalRevenue = filteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
-  const totalOrders = filteredSales.filter(s => !s.is_refund).length;
+  const totalOrders = filteredSales.filter(s => !isRefundOrder(s)).length;
   const avgOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-  const totalItems = filteredSales.filter(s => !s.is_refund).reduce((sum, s) => sum + s.items.reduce((a, i) => a + i.quantity, 0), 0);
+  const totalItems = filteredSales.filter(s => !isRefundOrder(s)).reduce((sum, s) => sum + (s.items || []).reduce((a, i) => a + i.quantity, 0), 0);
 
   const topBooksMap = {};
-  filteredSales.filter(s => !s.is_refund).forEach(sale => {
-    sale.items.forEach(item => {
+  filteredSales.filter(s => !isRefundOrder(s)).forEach(sale => {
+    (sale.items || []).forEach(item => {
       if (!topBooksMap[item.id]) topBooksMap[item.id] = { name: item.product_name, qty: 0, revenue: 0 };
       topBooksMap[item.id].qty += item.quantity;
       topBooksMap[item.id].revenue += item.price * item.quantity;
@@ -280,7 +282,7 @@ export default function Reports({ session, settings }) {
     const { start, end } = getDateBounds(borrowDateRange);
     const inRangeOrders = allSales.filter(s => {
       const d = new Date(s.created_at || s.timestamp);
-      return d >= start && d < end && !s.is_refund;
+      return d >= start && d < end && !isRefundOrder(s);
     });
 
     const items = [];
@@ -513,10 +515,10 @@ export default function Reports({ session, settings }) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-            <MetricCard icon={<DollarSign size={16} color="var(--accent-emerald)" />} bg="var(--accent-emerald-light)" label="Total Sales" value={`GH₵${dailyRevenue.toFixed(2)}`} sub={`${dailyOrders} orders`} valueColor="var(--accent-emerald)" />
+            <MetricCard icon={<DollarSign size={16} color="var(--accent-emerald)" />} bg="var(--accent-emerald-light)" label="Total Sales" value={`${currencySymbol}${dailyRevenue.toFixed(2)}`} sub={`${dailyOrders} orders`} valueColor="var(--accent-emerald)" />
             <MetricCard icon={<BookOpen size={16} color="var(--primary)" />} bg="var(--primary-light)" label="Books Sold" value={dailyItemsSold} sub="total copies" valueColor="var(--primary)" />
-            <MetricCard icon={<DollarSign size={16} color="var(--accent-amber)" />} bg="var(--accent-amber-light)" label="Cash Received" value={`GH₵${dailyCash.toFixed(2)}`} sub="cash payments" valueColor="var(--accent-amber)" />
-            <MetricCard icon={<ShoppingBag size={16} color="var(--accent-purple)" />} bg="hsla(265,83%,58%,0.12)" label="Card / Mobile" value={`GH₵${(dailyCard + dailyMobile).toFixed(2)}`} sub="non-cash payments" valueColor="var(--accent-purple)" />
+            <MetricCard icon={<DollarSign size={16} color="var(--accent-amber)" />} bg="var(--accent-amber-light)" label="Cash Received" value={`${currencySymbol}${dailyCash.toFixed(2)}`} sub="cash payments" valueColor="var(--accent-amber)" />
+            <MetricCard icon={<ShoppingBag size={16} color="var(--accent-purple)" />} bg="hsla(265,83%,58%,0.12)" label="Card / Mobile" value={`${currencySymbol}${(dailyCard + dailyMobile).toFixed(2)}`} sub="non-cash payments" valueColor="var(--accent-purple)" />
           </div>
 
           {dailyOrders > 0 && (
@@ -538,7 +540,7 @@ export default function Reports({ session, settings }) {
                       }} />
                     </div>
                     <span style={{ fontWeight: 800, color: row.color, width: '75px', textAlign: 'right', flexShrink: 0 }}>
-                      GH₵{row.amount.toFixed(2)}
+                      {currencySymbol}{row.amount.toFixed(2)}
                     </span>
                   </div>
                 ))}
@@ -552,27 +554,29 @@ export default function Reports({ session, settings }) {
                 <span>All Transactions — {dailySales.length} record{dailySales.length !== 1 ? 's' : ''}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: '480px', overflowY: 'auto', paddingBottom: '2.5rem', paddingRight: '4px' }}>
-                {dailySales.map((sale, i) => (
-                  <div key={i} style={{
-                    background: sale.is_refund ? 'var(--accent-rose-light)' : 'var(--bg-surface-elevated)',
-                    border: `1px solid ${sale.is_refund ? 'var(--accent-rose)' : 'var(--border-subtle)'}`,
-                    borderRadius: 'var(--radius-md)', padding: '0.65rem 0.8rem'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>#{sale.order_id}</span>
-                        {sale.is_refund && (
-                          <span style={{
-                            fontSize: '0.7rem', padding: '0.1rem 0.45rem',
-                            borderRadius: 'var(--radius-full)', fontWeight: 700,
-                            background: 'var(--accent-rose)', color: '#fff'
-                          }}>REFUND</span>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                        <span style={{ fontWeight: 800, fontSize: '1rem', color: sale.is_refund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                          GH₵{sale.total.toFixed(2)}
-                        </span>
+                {dailySales.map((sale, i) => {
+                  const isRefund = isRefundOrder(sale);
+                  return (
+                    <div key={i} style={{
+                      background: isRefund ? 'var(--accent-rose-light)' : 'var(--bg-surface-elevated)',
+                      border: `1px solid ${isRefund ? 'var(--accent-rose)' : 'var(--border-subtle)'}`,
+                      borderRadius: 'var(--radius-md)', padding: '0.65rem 0.8rem'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>#{sale.order_id}</span>
+                          {isRefund && (
+                            <span style={{
+                              fontSize: '0.7rem', padding: '0.1rem 0.45rem',
+                              borderRadius: 'var(--radius-full)', fontWeight: 700,
+                              background: 'var(--accent-rose)', color: '#fff'
+                            }}>REFUND</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          <span style={{ fontWeight: 800, fontSize: '1rem', color: isRefund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                            {currencySymbol}{Number(sale.total || 0).toFixed(2)}
+                          </span>
                         {isAdmin && (
                           <button
                             type="button"
@@ -595,7 +599,8 @@ export default function Reports({ session, settings }) {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -663,7 +668,7 @@ export default function Reports({ session, settings }) {
               icon={<DollarSign size={18} color="var(--accent-emerald)" />}
               bg="var(--accent-emerald-light)"
               label="Total Revenue"
-              value={`GH₵${totalRevenue.toFixed(2)}`}
+              value={`${currencySymbol}${totalRevenue.toFixed(2)}`}
               sub={`${totalOrders} completed orders`}
               valueColor="var(--accent-emerald)"
             />
@@ -672,7 +677,7 @@ export default function Reports({ session, settings }) {
               bg="var(--primary-light)"
               label="Total Orders"
               value={totalOrders}
-              sub={`Avg: GH₵${avgOrder.toFixed(2)} / order`}
+              sub={`Avg: ${currencySymbol}${avgOrder.toFixed(2)} / order`}
               valueColor="var(--primary)"
             />
             <MetricCard
@@ -687,7 +692,7 @@ export default function Reports({ session, settings }) {
               icon={<TrendingUp size={18} color="var(--accent-amber)" />}
               bg="var(--accent-amber-light)"
               label="Average Order"
-              value={`GH₵${avgOrder.toFixed(2)}`}
+              value={`${currencySymbol}${avgOrder.toFixed(2)}`}
               sub="basket size"
               valueColor="var(--accent-amber)"
             />
@@ -715,7 +720,7 @@ export default function Reports({ session, settings }) {
                         <div style={{ width: `${pct}%`, height: '100%', background: row.color, borderRadius: 'var(--radius-full)', transition: 'width 0.5s' }} />
                       </div>
                       <span style={{ fontWeight: 800, color: row.color, width: '80px', textAlign: 'right', flexShrink: 0 }}>
-                        GH₵{amt.toFixed(2)}
+                        {currencySymbol}{amt.toFixed(2)}
                       </span>
                     </div>
                   );
@@ -741,7 +746,7 @@ export default function Reports({ session, settings }) {
                       </div>
                       <div style={{ display: 'flex', gap: '0.6rem', flexShrink: 0 }}>
                         <span style={{ fontWeight: 700 }}>{b.qty} sold</span>
-                        <span style={{ fontWeight: 800, color: 'var(--accent-emerald)' }}>GH₵{b.revenue.toFixed(2)}</span>
+                        <span style={{ fontWeight: 800, color: 'var(--accent-emerald)' }}>{currencySymbol}{b.revenue.toFixed(2)}</span>
                       </div>
                     </div>
                   ))}
@@ -777,34 +782,36 @@ export default function Reports({ session, settings }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayedSales.map((sale, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle)', background: sale.is_refund ? 'var(--accent-rose-light)' : 'transparent' }}>
-                        <td style={{ padding: '0.45rem 0.5rem', fontWeight: 700 }}>
-                          #{sale.order_id}
-                          {sale.is_refund && (
-                            <span style={{ marginLeft: '0.35rem', fontSize: '0.62rem', padding: '0.05rem 0.35rem', borderRadius: '999px', background: 'var(--accent-rose)', color: '#fff', fontWeight: 800 }}>REFUND</span>
-                          )}
-                        </td>
-                        <td style={{ padding: '0.45rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.72rem' }}>
-                          {new Date(sale.created_at || sale.timestamp).toLocaleDateString()} {new Date(sale.created_at || sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                        <td style={{ padding: '0.45rem 0.5rem' }}>
-                          <div style={{ fontWeight: 600 }}>{sale.customer_name || 'Walk-in Customer'}</div>
-                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Staff: {sale.cashier_name || 'Cashier'}</div>
-                        </td>
-                        <td style={{ padding: '0.45rem 0.5rem' }}>
-                          <div style={{ fontSize: '0.72rem', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {(sale.items || []).map(it => `${it.quantity}x ${it.product_name}`).join(', ')}
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.45rem 0.5rem' }}>
-                          <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)', fontWeight: 600 }}>
-                            {sale.payment_method || 'Cash'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, fontSize: '0.85rem', color: sale.is_refund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                          GH₵{(sale.total || 0).toFixed(2)}
-                        </td>
+                    {displayedSales.map((sale, i) => {
+                      const isRefund = isRefundOrder(sale);
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle)', background: isRefund ? 'var(--accent-rose-light)' : 'transparent' }}>
+                          <td style={{ padding: '0.45rem 0.5rem', fontWeight: 700 }}>
+                            #{sale.order_id}
+                            {isRefund && (
+                              <span style={{ marginLeft: '0.35rem', fontSize: '0.62rem', padding: '0.05rem 0.35rem', borderRadius: '999px', background: 'var(--accent-rose)', color: '#fff', fontWeight: 800 }}>REFUND</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                            {new Date(sale.created_at || sale.timestamp).toLocaleDateString()} {new Date(sale.created_at || sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem' }}>
+                            <div style={{ fontWeight: 600 }}>{sale.customer_name || 'Walk-in Customer'}</div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Staff: {sale.cashier_name || 'Cashier'}</div>
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem' }}>
+                            <div style={{ fontSize: '0.72rem', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {(sale.items || []).map(it => `${it.quantity}x ${it.product_name}`).join(', ')}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem' }}>
+                            <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-light)', fontWeight: 600 }}>
+                              {sale.payment_method || 'Cash'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, fontSize: '0.85rem', color: isRefund ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                            {currencySymbol}{(sale.total || 0).toFixed(2)}
+                          </td>
                         {isAdmin && (
                           <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right' }}>
                             <button
@@ -819,7 +826,8 @@ export default function Reports({ session, settings }) {
                           </td>
                         )}
                       </tr>
-                    ))}
+                    );
+                  })}
                   </tbody>
                 </table>
               </div>
@@ -922,7 +930,7 @@ export default function Reports({ session, settings }) {
               icon={<DollarSign size={18} color="var(--accent-emerald)" />}
               bg="var(--accent-emerald-light)"
               label="Retail Inventory Value"
-              value={`GH₵${totalStockValue.toFixed(2)}`}
+              value={`${currencySymbol}${totalStockValue.toFixed(2)}`}
               sub="Potential gross earnings"
               valueColor="var(--accent-emerald)"
             />
@@ -930,7 +938,7 @@ export default function Reports({ session, settings }) {
               icon={<Package size={18} color="var(--primary)" />}
               bg="var(--primary-light)"
               label="Wholesale Cost Value"
-              value={`GH₵${totalWholesaleValue.toFixed(2)}`}
+              value={`${currencySymbol}${totalWholesaleValue.toFixed(2)}`}
               sub="Store purchase investment"
               valueColor="var(--primary)"
             />
@@ -938,7 +946,7 @@ export default function Reports({ session, settings }) {
               icon={<TrendingUp size={18} color="var(--accent-purple)" />}
               bg="hsla(265,83%,58%,0.12)"
               label="Projected Gross Profit"
-              value={`GH₵${potentialProfit.toFixed(2)}`}
+              value={`${currencySymbol}${potentialProfit.toFixed(2)}`}
               sub={`${totalStockValue > 0 ? ((potentialProfit / totalStockValue) * 100).toFixed(1) : 0}% potential margin`}
               valueColor="var(--accent-purple)"
             />
@@ -1013,13 +1021,13 @@ export default function Reports({ session, settings }) {
                             </span>
                           </td>
                           <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 700 }}>
-                            GH₵{rPrice.toFixed(2)}
+                            {currencySymbol}{rPrice.toFixed(2)}
                           </td>
                           <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', color: 'var(--text-muted)' }}>
-                            GH₵{wPrice.toFixed(2)}
+                            {currencySymbol}{wPrice.toFixed(2)}
                           </td>
                           <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, color: 'var(--accent-emerald)' }}>
-                            GH₵{lineVal.toFixed(2)}
+                            {currencySymbol}{lineVal.toFixed(2)}
                           </td>
                         </tr>
                       );
@@ -1101,7 +1109,7 @@ export default function Reports({ session, settings }) {
               icon={<DollarSign size={18} color="var(--primary)" />}
               bg="var(--primary-light)"
               label="Customer Sales Total"
-              value={`GH₵${borrowedSalesData.totalRevenue.toFixed(2)}`}
+              value={`${currencySymbol}${borrowedSalesData.totalRevenue.toFixed(2)}`}
               sub="Gross collected from buyers"
               valueColor="var(--primary)"
             />
@@ -1109,15 +1117,15 @@ export default function Reports({ session, settings }) {
               icon={<AlertTriangle size={18} color="var(--accent-rose)" />}
               bg="var(--accent-rose-light)"
               label="Supplier Payouts Due"
-              value={`GH₵${borrowedSalesData.unsettledPayout.toFixed(2)}`}
-              sub={`Total due: GH₵${borrowedSalesData.totalPayout.toFixed(2)} (GH₵${borrowedSalesData.settledPayout.toFixed(2)} paid)`}
+              value={`${currencySymbol}${borrowedSalesData.unsettledPayout.toFixed(2)}`}
+              sub={`Total due: ${currencySymbol}${borrowedSalesData.totalPayout.toFixed(2)} (${currencySymbol}${borrowedSalesData.settledPayout.toFixed(2)} paid)`}
               valueColor="var(--accent-rose)"
             />
             <MetricCard
               icon={<TrendingUp size={18} color="var(--accent-emerald)" />}
               bg="var(--accent-emerald-light)"
               label="Shop Net Profit / Cut"
-              value={`GH₵${borrowedSalesData.totalProfit.toFixed(2)}`}
+              value={`${currencySymbol}${borrowedSalesData.totalProfit.toFixed(2)}`}
               sub="Retained by your bookstore"
               valueColor="var(--accent-emerald)"
             />
@@ -1158,7 +1166,7 @@ export default function Reports({ session, settings }) {
                               {sup.supplier}
                             </div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              {sup.totalQty} book{sup.totalQty > 1 ? 's' : ''} sold • Sales: GH₵{sup.totalRevenue.toFixed(2)} • Shop Profit: +GH₵{sup.totalProfit.toFixed(2)}
+                              {sup.totalQty} book{sup.totalQty > 1 ? 's' : ''} sold • Sales: {currencySymbol}{sup.totalRevenue.toFixed(2)} • Shop Profit: +{currencySymbol}{sup.totalProfit.toFixed(2)}
                             </div>
                           </div>
                         </div>
@@ -1169,7 +1177,7 @@ export default function Reports({ session, settings }) {
                               Payout Owed to Lender
                             </div>
                             <div style={{ fontWeight: 800, fontSize: '1.05rem', color: allPaid ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
-                              GH₵{sup.unsettledPayout.toFixed(2)} {allPaid && <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>(Settled)</span>}
+                              {currencySymbol}{sup.unsettledPayout.toFixed(2)} {allPaid && <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>(Settled)</span>}
                             </div>
                           </div>
                         </div>
@@ -1213,16 +1221,16 @@ export default function Reports({ session, settings }) {
                                   {it.quantity}
                                 </td>
                                 <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', color: 'var(--text-muted)' }}>
-                                  GH₵{it.unit_price.toFixed(2)}
+                                  {currencySymbol}{it.unit_price.toFixed(2)}
                                 </td>
                                 <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 600 }}>
-                                  GH₵{it.unit_cost.toFixed(2)}
+                                  {currencySymbol}{it.unit_cost.toFixed(2)}
                                 </td>
                                 <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, color: 'var(--accent-rose)' }}>
-                                  GH₵{it.line_payout.toFixed(2)}
+                                  {currencySymbol}{it.line_payout.toFixed(2)}
                                 </td>
                                 <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right', fontWeight: 800, color: 'var(--accent-emerald)' }}>
-                                  +GH₵{it.line_profit.toFixed(2)}
+                                  +{currencySymbol}{it.line_profit.toFixed(2)}
                                 </td>
                                 <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                                   <div>#{it.order_id}</div>
@@ -1300,7 +1308,7 @@ export default function Reports({ session, settings }) {
 
       {/* ── OUTBOUND LOANS REPORT ────────────────────────────────────────── */}
       {activeReport === 'outbound' && (() => {
-        const currencySymbol = settings?.currency_symbol || 'GH₵';
+        // currencySymbol defined at component level
         const outstandingLoans = allLoans.filter(l => l.status === 'outstanding');
         const returnedLoans = allLoans.filter(l => l.status === 'returned');
         const paidLoans = allLoans.filter(l => l.status === 'paid');
@@ -1539,6 +1547,7 @@ export default function Reports({ session, settings }) {
         isOpen={isRefundOpen}
         onClose={() => setIsRefundOpen(false)}
         onRefundSuccess={() => setRefreshTrigger(t => t + 1)}
+        settings={settings}
       />
 
       <ZReportModal

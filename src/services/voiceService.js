@@ -173,8 +173,8 @@ export function parseVoiceSalesCommand(rawTranscript, products = []) {
     return { intent: 'TOGGLE_TAX', value: false, raw: transcript };
   }
 
-  // 2. Discount Command: "Discount 10 cedis" or "Apply 5 discount"
-  const discountMatch = normalized.match(/(?:discount|apply discount|give discount|less)\s+(?:of\s+)?(\d+(?:\.\d+)?|[a-z\s]+)(?:\s+cedis|\s+ghc|\s+ghs)?/);
+  // 2. Discount Command: "Discount 10 cedis" or "Apply 5 discount" or "Discount ¢10"
+  const discountMatch = normalized.match(/(?:discount|apply discount|give discount|less)\s+(?:of\s+)?(?:¢\s*)?(\d+(?:\.\d+)?|[a-z\s]+)(?:\s+cedis|\s+cedi|\s+ghc|\s+ghs)?/);
   if (discountMatch) {
     const num = parseSpokenNumber(discountMatch[1]);
     if (num !== null && num >= 0) {
@@ -294,14 +294,14 @@ export function parseVoiceProductCommand(rawTranscript, categories = []) {
   };
 
   // 1. Extract Retail Price: "retail price 45", "retail 45", "price 45 cedis", "sell 45"
-  const retailMatch = lower.match(/(?:retail\s+price|retail|selling\s+price|price)\s*(?:is|of|:)?\s*(\d+(?:\.\d+)?|[a-z\s]+?)(?:\s+cedis|\s+ghc|\s+ghs|,|$)/i);
+  const retailMatch = lower.match(/(?:retail\s+price|retail|selling\s+price|price)\s*(?:is|of|:)?\s*(?:¢\s*)?(\d+(?:\.\d+)?|[a-z\s]+?)(?:\s+cedis|\s+cedi|\s+ghc|\s+ghs|,|$)/i);
   if (retailMatch) {
     const num = parseSpokenNumber(retailMatch[1]);
     if (num !== null) extracted.retail_price = String(num);
   }
 
   // 2. Extract Wholesale Price: "wholesale price 38", "wholesale 38"
-  const wholesaleMatch = lower.match(/(?:wholesale\s+price|wholesale)\s*(?:is|of|:)?\s*(\d+(?:\.\d+)?|[a-z\s]+?)(?:\s+cedis|\s+ghc|\s+ghs|,|$)/i);
+  const wholesaleMatch = lower.match(/(?:wholesale\s+price|wholesale)\s*(?:is|of|:)?\s*(?:¢\s*)?(\d+(?:\.\d+)?|[a-z\s]+?)(?:\s+cedis|\s+cedi|\s+ghc|\s+ghs|,|$)/i);
   if (wholesaleMatch) {
     const num = parseSpokenNumber(wholesaleMatch[1]);
     if (num !== null) extracted.wholesale_price = String(num);

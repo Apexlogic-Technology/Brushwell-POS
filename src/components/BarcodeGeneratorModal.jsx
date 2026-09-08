@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import { X, Printer, Copy, Check, Barcode as BarcodeIcon } from 'lucide-react';
 
-export default function BarcodeGeneratorModal({ isOpen, onClose, product }) {
+export default function BarcodeGeneratorModal({ isOpen, onClose, product, currencySymbol = '¢' }) {
   const barcodeRef = useRef(null);
   const [copied, setCopied] = React.useState(false);
 
@@ -49,7 +49,7 @@ export default function BarcodeGeneratorModal({ isOpen, onClose, product }) {
           <div class="label-box">
             <div class="name">${product.product_name}</div>
             <svg id="print-barcode"></svg>
-            <div class="price">GH₵${product.retail_price.toFixed(2)}</div>
+            <div class="price">${currencySymbol}${(parseFloat(product.retail_price) || 0).toFixed(2)}</div>
           </div>
           <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
           <script>
@@ -77,7 +77,7 @@ export default function BarcodeGeneratorModal({ isOpen, onClose, product }) {
           <div>
             <h4 style={{ fontSize: '1.1rem', fontWeight: 800 }}>{product.product_name}</h4>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Category: {product.category_name || 'General'} • Retail: ${product.retail_price?.toFixed(2)}
+              Category: {product.category_name || 'General'} • Retail: {currencySymbol}{(parseFloat(product.retail_price) || 0).toFixed(2)}
             </div>
           </div>
 

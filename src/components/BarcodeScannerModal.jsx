@@ -19,7 +19,8 @@ export default function BarcodeScannerModal({
   products = [],
   title = 'Barcode & QR Scanner',
   subtitle = 'Point camera at any barcode or ISBN',
-  targetProductName = null
+  targetProductName = null,
+  currencySymbol = '¢'
 }) {
   const [manualCode, setManualCode]                   = useState('');
   const [continuousMode, setContinuousMode]           = useState(false);
@@ -997,7 +998,7 @@ export default function BarcodeScannerModal({
                 </div>
                 {lastScanned.product && (
                   <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    GH₵ {parseFloat(lastScanned.product.retail_price || 0).toFixed(2)} • Barcode: {lastScanned.code}
+                    {currencySymbol} {parseFloat(lastScanned.product.retail_price || 0).toFixed(2)} • Barcode: {lastScanned.code}
                   </div>
                 )}
               </div>

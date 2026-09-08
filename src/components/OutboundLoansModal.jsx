@@ -30,7 +30,7 @@ export default function OutboundLoansModal({ isOpen, onClose, products, settings
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const currencySymbol = settings?.currency_symbol || 'GH\u20b5';
+  const currencySymbol = '¢';
 
   const getGrade = (p) => {
     if (!p) return '';

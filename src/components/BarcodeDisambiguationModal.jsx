@@ -7,7 +7,7 @@ export default function BarcodeDisambiguationModal({
   matchingProducts = [],
   onSelectProduct,
   onClose,
-  currencySymbol = 'GH₵',
+  currencySymbol = '¢',
   priceMode = 'retail'
 }) {
   useEffect(() => {

@@ -1,10 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
-  Search, ShoppingCart, Plus, Minus, Trash2, Tag, 
-  CreditCard, DollarSign, Smartphone, Check, Sparkles, 
-  AlertTriangle, Clock, ArrowRight, Zap, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon, Mic, BookOpen,
-  Handshake, Store, Info, HelpCircle, Camera, PauseCircle, Users, X
+  Search, ShoppingCart, Plus, Minus, Trash2, Tag, Check,
+  AlertTriangle, ArrowRight, RefreshCw, Percent, ChevronDown, Barcode as BarcodeIcon, Mic, BookOpen,
+  Handshake, Camera, PauseCircle, X
 } from 'lucide-react';
 import { processCheckout, DEFAULT_TAX_TYPES } from '../services/supabaseService';
 import VoiceSellingModal from './VoiceSellingModal';
@@ -75,9 +74,7 @@ export default function SellingInterface({
   const [checkoutError, setCheckoutError] = useState('');
   const [visibleCount, setVisibleCount] = useState(40);
   const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-
-  const currencySymbol = settings.currency_symbol || 'GH₵';
+  const currencySymbol = '¢';
   const taxTypes = (settings.tax_types && settings.tax_types.length > 0)
     ? settings.tax_types
     : DEFAULT_TAX_TYPES;
@@ -1357,7 +1354,7 @@ export default function SellingInterface({
                         </div>
                       </div>
 
-                      {/* Custom Item Discount Input (Amount in GH₵) */}
+                      {/* Custom Item Discount Input (Amount in ¢) */}
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px dashed var(--border-light)', fontSize: '0.74rem' }}>
                         <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                           <Tag size={12} color={itemDisc > 0 ? 'var(--accent-rose)' : 'var(--text-muted)'} /> Item Discount ({currencySymbol}):
@@ -1757,6 +1754,7 @@ export default function SellingInterface({
       <VoiceSellingModal
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
+        currencySymbol={currencySymbol}
         products={products}
         cart={cart}
         onAddToCart={(product, qty) => {
@@ -1901,7 +1899,7 @@ export default function SellingInterface({
                                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{grade ? `Class: ${grade}` : ''}{p.publisher ? ` · ${p.publisher}` : ''}</div>
                               </div>
                               <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '0.5rem' }}>
-                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--primary)' }}>GH₵{p.retail_price}</div>
+                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--primary)' }}>{currencySymbol}{p.retail_price}</div>
                                 <div style={{ fontSize: '0.65rem', color: p.stock_quantity > 0 ? 'var(--accent-green)' : 'var(--accent-rose)' }}>Stock: {p.stock_quantity}</div>
                               </div>
                             </div>
@@ -1965,7 +1963,7 @@ export default function SellingInterface({
               {/* Prices & Quantity */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
                 <div>
-                  <label className="form-label">Borrow Cost (GH₵) *</label>
+                  <label className="form-label">Borrow Cost ({currencySymbol}) *</label>
                   <input
                     type="number"
                     step="any"
@@ -1979,7 +1977,7 @@ export default function SellingInterface({
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '2px' }}>What you pay lender</div>
                 </div>
                 <div>
-                  <label className="form-label">Selling Price (GH₵) *</label>
+                  <label className="form-label">Selling Price ({currencySymbol}) *</label>
                   <input
                     type="number"
                     step="any"

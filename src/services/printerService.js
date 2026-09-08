@@ -95,7 +95,7 @@ export const printBluetoothReceipt = async (order, settings) => {
     buffer.push(...encoded);
   };
 
-  const symbol = settings.currency_symbol || 'GH₵';
+  const symbol = '¢';
 
   // Initialize
   addBytes(ESC, 0x40);
@@ -171,7 +171,7 @@ export const printBluetoothReceipt = async (order, settings) => {
 export const printSystemWebReceipt = (order, settings) => {
   const is80mm = settings.printer_paper_width === '80mm';
   const widthPx = is80mm ? '300px' : '230px';
-  const symbol = settings.currency_symbol || 'GH₵';
+  const symbol = '¢';
 
   const printWindow = window.open('', '_blank');
   if (!printWindow) return;
@@ -180,88 +180,94 @@ export const printSystemWebReceipt = (order, settings) => {
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Receipt ${order.order_id}</title>
+        <title>Receipt #${order.order_id}</title>
         <style>
+          @page { margin: 0; }
           body {
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 12px;
-            margin: 0;
-            padding: 10px;
-            background: #fff;
-            color: #000;
-          }
-          .receipt {
+            font-family: Inter, system-ui, -apple-system, sans-serif;
             width: ${widthPx};
             margin: 0 auto;
+            padding: 10px;
+            font-size: 11px;
+            color: #111;
           }
           .text-center { text-align: center; }
           .text-right { text-align: right; }
-          .divider { border-top: 1px dashed #000; margin: 6px 0; }
           .bold { font-weight: bold; }
+          .divider {
+            border-top: 1px dashed #999;
+            margin: 6px 0;
+          }
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
-          th { text-align: left; }
+          th { text-align: left; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+          .header-title { font-size: 14px; font-weight: bold; }
         </style>
       </head>
       <body>
-        <div class="receipt">
-          <div class="text-center bold" style="font-size: 15px;">
-            ${settings.store_name || 'BRUSHWELL BOOKS'}
-          </div>
-          <div class="text-center" style="font-size: 10px; color: #444;">
-            Bookshop Mobile POS
-          </div>
-          <div class="divider"></div>
+        <div class="text-center">
+          <div class="header-title">${settings.store_name || 'Brushwell Books'}</div>
+          ${settings.store_address ? `<div>${settings.store_address}</div>` : ''}
+          ${settings.store_phone ? `<div>Tel: ${settings.store_phone}</div>` : ''}
+          <div style="font-size: 9px; color: #555; margin-top: 2px;">OFFICIAL SALES RECEIPT</div>
+        </div>
 
-          <div>Order #: <strong>${order.order_id}</strong></div>
-          <div>Date: ${new Date(order.timestamp).toLocaleString()}</div>
-          <div>Cashier: ${order.cashier_name || 'Main Cashier'}</div>
-          <div>Tier: <strong>${order.price_mode === 'wholesale' ? 'WHOLESALE' : 'RETAIL'}</strong></div>
+        <div class="divider"></div>
 
-          <div class="divider"></div>
+        <div>
+          <div>Order: #${order.order_id}</div>
+          <div>Date: ${new Date(order.created_at || Date.now()).toLocaleString()}</div>
+          <div>Customer: ${order.customer_name || 'Walk-in Customer'}</div>
+          <div>Cashier: ${order.cashier_name || 'Staff'}</div>
+          <div>Tier: ${(order.price_mode || 'retail').toUpperCase()}</div>
+        </div>
 
-          <table>
-            <thead>
+        <div class="divider"></div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th style="text-align: center;">Qty</th>
+              <th style="text-align: right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${order.items.map(item => `
               <tr>
-                <th>Item</th>
-                <th style="text-align: center;">Qty</th>
-                <th style="text-align: right;">Total</th>
+                <td style="padding: 2px 0;">${item.product_name}</td>
+                <td style="text-align: center;">${item.quantity}</td>
+                <td style="text-align: right;">${symbol}${(item.price * item.quantity).toFixed(2)}</td>
               </tr>
-            </thead>
-            <tbody>
-              ${order.items.map(item => `
-                <tr>
-                  <td style="padding: 2px 0;">${item.product_name}</td>
-                  <td style="text-align: center;">${item.quantity}</td>
-                  <td style="text-align: right;">${symbol}${(item.price * item.quantity).toFixed(2)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+            `).join('')}
+          </tbody>
+        </table>
 
-          <div class="divider"></div>
+        <div class="divider"></div>
 
-          <div class="text-right">
-            <div>Subtotal: ${symbol}${order.subtotal.toFixed(2)}</div>
-            ${order.discount > 0 ? `<div>Discount: -${symbol}${order.discount.toFixed(2)}</div>` : ''}
-            ${order.apply_tax && order.tax_breakdown && order.tax_breakdown.length > 0 ? (
-              order.tax_breakdown.map(t => `<div>${t.name} (${t.rate_pct}%): +${symbol}${t.amount.toFixed(2)}</div>`).join('')
-            ) : order.apply_tax && order.tax_amount > 0 ? `<div>VAT/Tax: +${symbol}${order.tax_amount.toFixed(2)}</div>` : ''}
+        <div class="text-right">
+          <div>Subtotal: ${symbol}${order.subtotal.toFixed(2)}</div>
+          ${order.discount > 0 ? `<div>Discount: -${symbol}${order.discount.toFixed(2)}</div>` : ''}
+          ${order.apply_tax && order.tax_breakdown && order.tax_breakdown.length > 0 ? (
+            order.tax_breakdown.map(t => `<div>${t.name} (${t.rate_pct}%): +${symbol}${t.amount.toFixed(2)}</div>`).join('')
+          ) : order.apply_tax && order.tax_amount > 0 ? `<div>VAT/Tax: +${symbol}${order.tax_amount.toFixed(2)}</div>` : ''}
 
-            <div style="font-size: 14px; font-weight: bold; margin-top: 4px;">
-              TOTAL: ${symbol}${order.total.toFixed(2)}
-            </div>
-            <div style="font-size: 11px; margin-top: 2px;">
-              Payment (${order.payment_method}): ${symbol}${(order.cash_given || order.total).toFixed(2)}
-            </div>
-            ${order.change_due > 0 ? `<div>Change Due: ${symbol}${order.change_due.toFixed(2)}</div>` : ''}
+          <div style="font-size: 13px; font-weight: bold; margin-top: 4px;">
+            TOTAL PAID: ${symbol}${order.total.toFixed(2)}
           </div>
-
-          <div class="divider"></div>
-
-          <div class="text-center" style="font-size: 10px; margin-top: 8px;">
-            Thank you for reading with us!<br/>
-            Brushwell Books System
+          <div style="font-size: 11px; margin-top: 2px;">
+            Payment Method: ${order.payment_method || 'Cash'}
           </div>
+          <div style="font-size: 11px;">
+            Amount Paid: ${symbol}${(order.cash_given || order.total).toFixed(2)}
+          </div>
+          ${order.change_due > 0 ? `<div>Change Due: ${symbol}${order.change_due.toFixed(2)}</div>` : ''}
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="text-center" style="font-size: 10px; margin-top: 6px; color: #666;">
+          Thank you for shopping with us!<br/>
+          ${settings.store_name || 'Brushwell Books'} • Digital Receipt
         </div>
 
         <script>

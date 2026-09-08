@@ -12,22 +12,47 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
 
   if (!isOpen) return null;
 
-  const today = new Date().toISOString().split('T')[0];
-  const todaySales = sales.filter(s => (s.created_at || s.timestamp || '').startsWith(today));
+  const now = new Date();
+  const todayDateStr = now.toLocaleDateString();
+  const today = todayDateStr;
+  const todaySales = sales.filter(s => {
+    const raw = s.created_at || s.timestamp;
+    if (!raw) return false;
+    return new Date(raw).toLocaleDateString() === todayDateStr;
+  });
 
-  const regularSales = todaySales.filter(s => s.order_type !== 'refund');
-  const refunds = todaySales.filter(s => s.order_type === 'refund');
+  const isRefundOrder = (s) => s.order_type === 'refund' || Boolean(s.is_refund) || String(s.order_id || '').startsWith('REF-');
+  const regularSales = todaySales.filter(s => !isRefundOrder(s));
+  const refunds = todaySales.filter(s => isRefundOrder(s));
 
-  const totalRevenue = regularSales.reduce((sum, s) => sum + (s.total || 0), 0);
-  const totalSubtotal = regularSales.reduce((sum, s) => sum + (s.subtotal || 0), 0);
-  const totalTax = regularSales.reduce((sum, s) => sum + (s.tax_total || 0), 0);
-  const totalRefundAmount = refunds.reduce((sum, s) => sum + Math.abs(s.total || 0), 0);
+  const totalRevenue = regularSales.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
+  const totalSubtotal = regularSales.reduce((sum, s) => sum + (parseFloat(s.subtotal) || 0), 0);
+  const totalTax = regularSales.reduce((sum, s) => sum + (parseFloat(s.tax_total || s.tax_amount) || 0), 0);
+  const totalRefundAmount = refunds.reduce((sum, s) => sum + Math.abs(parseFloat(s.total) || 0), 0);
 
-  const cashTotal = regularSales.filter(s => s.payment_method === 'Cash').reduce((sum, s) => sum + s.total, 0);
-  const cardTotal = todaySales.filter(s => s.payment_method === 'Card').reduce((sum, s) => sum + s.total, 0);
-  const mobileTotal = todaySales.filter(s => s.payment_method === 'Mobile Transfer').reduce((sum, s) => sum + s.total, 0);
+  // Till Balancing: calculate payments from regularSales including split payments
+  let cashTotal = 0;
+  let cardTotal = 0;
+  let mobileTotal = 0;
+
+  regularSales.forEach(s => {
+    if (s.split_payments && Array.isArray(s.split_payments) && s.split_payments.length > 0) {
+      s.split_payments.forEach(p => {
+        const amt = parseFloat(p.amount) || 0;
+        if (p.method === 'Cash') cashTotal += amt;
+        else if (p.method === 'Card') cardTotal += amt;
+        else if (p.method === 'Mobile Transfer') mobileTotal += amt;
+      });
+    } else {
+      const tot = parseFloat(s.total) || 0;
+      if (s.payment_method === 'Cash') cashTotal += tot;
+      else if (s.payment_method === 'Card') cardTotal += tot;
+      else if (s.payment_method === 'Mobile Transfer') mobileTotal += tot;
+    }
+  });
 
   // Borrowed books calculation for today's Z-Report
+  const currencySymbol = '¢';
   const borrowedItems = [];
   regularSales.forEach(s => {
     (s.items || []).forEach(it => {
@@ -38,9 +63,9 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
         borrowedItems.push({
           ...it,
           qty,
-          lineRevenue: sell * qty,
-          linePayout: cost * qty,
-          lineProfit: Math.max(0, (sell - cost) * qty)
+          lineRevenue: qty * sell,
+          linePayout: qty * cost,
+          lineProfit: qty * (sell - cost),
         });
       }
     });
@@ -52,21 +77,22 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
   const totalBorrowedProfit = borrowedItems.reduce((sum, i) => sum + i.lineProfit, 0);
 
   const handlePrintZReport = () => {
-    const printWindow = window.open('', '_blank');
+    const printWindow = window.open('', '_blank', 'width=350,height=600');
+    if (!printWindow) return;
+
     printWindow.document.write(`
       <html>
         <head>
           <title>Z-Report - ${today}</title>
           <style>
-            body { font-family: monospace; font-size: 12px; padding: 10px; width: 240px; margin: 0 auto; color: #000; }
-            .header { text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 4px; }
-            .line { border-bottom: 1px dashed #000; margin: 6px 0; }
+            body { font-family: monospace; font-size: 12px; margin: 10px; width: 280px; }
+            .line { border-bottom: 1px dashed #000; margin: 8px 0; }
             .row { display: flex; justify-content: space-between; margin: 3px 0; }
             .bold { font-weight: bold; }
           </style>
         </head>
         <body>
-          <div class="header">${settings.store_name || 'BRUSHWELL BOOKS'}</div>
+          <div style="text-align:center; font-weight:bold; font-size:14px;">${settings?.store_name || 'BRUSHWELL BOOKS'}</div>
           <div style="text-align:center;">END-OF-DAY Z-REPORT</div>
           <div class="line"></div>
           <div>Date: ${new Date().toLocaleDateString()}</div>
@@ -76,24 +102,24 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
           <div class="row"><span>Total Orders:</span><span class="bold">${regularSales.length}</span></div>
           <div class="row"><span>Total Items Sold:</span><span class="bold">${regularSales.reduce((sum, s) => sum + (s.items || []).reduce((a, i) => a + i.quantity, 0), 0)}</span></div>
           <div class="line"></div>
-          <div class="row"><span>Gross Subtotal:</span><span>GH₵${totalSubtotal.toFixed(2)}</span></div>
-          <div class="row"><span>Tax/VAT Collected:</span><span>+GH₵${totalTax.toFixed(2)}</span></div>
-          <div class="row"><span>Refunds Processed:</span><span>-GH₵${totalRefundAmount.toFixed(2)}</span></div>
+          <div class="row"><span>Gross Subtotal:</span><span>${currencySymbol}${totalSubtotal.toFixed(2)}</span></div>
+          <div class="row"><span>Tax/VAT Collected:</span><span>+${currencySymbol}${totalTax.toFixed(2)}</span></div>
+          <div class="row"><span>Refunds Processed:</span><span>-${currencySymbol}${totalRefundAmount.toFixed(2)}</span></div>
           <div class="line"></div>
-          <div class="row bold" style="font-size:14px;"><span>NET TOTAL REVENUE:</span><span>GH₵${totalRevenue.toFixed(2)}</span></div>
+          <div class="row bold" style="font-size:14px;"><span>NET TOTAL REVENUE:</span><span>${currencySymbol}${totalRevenue.toFixed(2)}</span></div>
           ${totalBorrowedQty > 0 ? `
             <div class="line"></div>
             <div class="bold">BORROWED BOOKS AUDIT</div>
             <div class="row"><span>Borrowed Books Sold:</span><span class="bold">${totalBorrowedQty}</span></div>
-            <div class="row"><span>Customer Revenue:</span><span>GH₵${totalBorrowedRevenue.toFixed(2)}</span></div>
-            <div class="row"><span>Supplier Payouts Due:</span><span class="bold">-GH₵${totalBorrowedPayout.toFixed(2)}</span></div>
-            <div class="row"><span>Shop Net Profit:</span><span>+GH₵${totalBorrowedProfit.toFixed(2)}</span></div>
+            <div class="row"><span>Customer Revenue:</span><span>${currencySymbol}${totalBorrowedRevenue.toFixed(2)}</span></div>
+            <div class="row"><span>Supplier Payouts Due:</span><span class="bold">-${currencySymbol}${totalBorrowedPayout.toFixed(2)}</span></div>
+            <div class="row"><span>Shop Net Profit:</span><span>+${currencySymbol}${totalBorrowedProfit.toFixed(2)}</span></div>
           ` : ''}
           <div class="line"></div>
           <div class="bold">TILL BALANCING SUMMARY</div>
-          <div class="row"><span>Cash Total:</span><span>GH₵${cashTotal.toFixed(2)}</span></div>
-          <div class="row"><span>Card Total:</span><span>GH₵${cardTotal.toFixed(2)}</span></div>
-          <div class="row"><span>Mobile Transfer:</span><span>GH₵${mobileTotal.toFixed(2)}</span></div>
+          <div class="row"><span>Cash Total:</span><span>${currencySymbol}${cashTotal.toFixed(2)}</span></div>
+          <div class="row"><span>Card Total:</span><span>${currencySymbol}${cardTotal.toFixed(2)}</span></div>
+          <div class="row"><span>Mobile Transfer:</span><span>${currencySymbol}${mobileTotal.toFixed(2)}</span></div>
           <div class="line"></div>
           <div style="text-align:center; font-size:10px; margin-top:8px;">
             End of Shift Till Audit<br/>Brushwell Books System
@@ -154,22 +180,22 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', margin: '2px 0' }}>
               <span>Subtotal:</span>
-              <span>GH₵{totalSubtotal.toFixed(2)}</span>
+              <span>{currencySymbol}{totalSubtotal.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', margin: '2px 0' }}>
               <span>Tax / VAT Collected:</span>
-              <span>+GH₵{totalTax.toFixed(2)}</span>
+              <span>+{currencySymbol}{totalTax.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', margin: '2px 0' }}>
               <span>Refunds Issued:</span>
-              <span>-GH₵{totalRefundAmount.toFixed(2)}</span>
+              <span>-{currencySymbol}{totalRefundAmount.toFixed(2)}</span>
             </div>
 
             <div style={{ borderBottom: '1px dashed #999', margin: '6px 0' }}></div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 'bold' }}>
               <span>NET REVENUE:</span>
-              <span>GH₵{totalRevenue.toFixed(2)}</span>
+              <span>{currencySymbol}{totalRevenue.toFixed(2)}</span>
             </div>
 
             {totalBorrowedQty > 0 && (
@@ -182,11 +208,11 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', margin: '2px 0' }}>
                   <span>Supplier Payouts Due:</span>
-                  <strong style={{ color: '#b91c1c' }}>-GH₵{totalBorrowedPayout.toFixed(2)}</strong>
+                  <strong style={{ color: '#b91c1c' }}>-{currencySymbol}{totalBorrowedPayout.toFixed(2)}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', margin: '2px 0' }}>
                   <span>Shop Net Profit Kept:</span>
-                  <strong style={{ color: '#15803d' }}>+GH₵{totalBorrowedProfit.toFixed(2)}</strong>
+                  <strong style={{ color: '#15803d' }}>+{currencySymbol}{totalBorrowedProfit.toFixed(2)}</strong>
                 </div>
               </>
             )}
@@ -196,15 +222,15 @@ export default function ZReportModal({ isOpen, onClose, settings, session }) {
             <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>TILL RECONCILIATION</div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>💵 Cash in Till:</span>
-              <span>GH₵{cashTotal.toFixed(2)}</span>
+              <span>{currencySymbol}{cashTotal.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>💳 Card Payments:</span>
-              <span>GH₵{cardTotal.toFixed(2)}</span>
+              <span>{currencySymbol}{cardTotal.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>📱 Mobile Transfer:</span>
-              <span>GH₵{mobileTotal.toFixed(2)}</span>
+              <span>{currencySymbol}{mobileTotal.toFixed(2)}</span>
             </div>
           </div>
         </div>

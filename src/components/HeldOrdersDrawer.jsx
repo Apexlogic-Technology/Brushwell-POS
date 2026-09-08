@@ -30,7 +30,7 @@ export default function HeldOrdersDrawer({
   onDelete,
   onHoldCurrent,
   hasActiveCart,
-  currencySymbol = 'GH₵'
+  currencySymbol = '¢'
 }) {
   if (!isOpen) return null;
 

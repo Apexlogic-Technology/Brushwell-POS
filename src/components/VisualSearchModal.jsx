@@ -68,7 +68,7 @@ export default function VisualSearchModal({
 
   const settings = getSettings();
   const hasApiKey = Boolean(settings.gemini_api_key && settings.gemini_api_key.trim());
-  const currencySymbol = settings.currency_symbol || 'GH₵';
+  const currencySymbol = '¢';
 
   useEffect(() => {
     isMountedRef.current = true;

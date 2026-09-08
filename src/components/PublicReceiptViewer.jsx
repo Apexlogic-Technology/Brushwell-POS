@@ -44,7 +44,7 @@ export default function PublicReceiptViewer({ orderId, onGoToPos }) {
     loadOrder();
   }, [orderId]);
 
-  const currencySymbol = settings.currency_symbol || 'GH₵';
+  const currencySymbol = '¢';
 
   if (loading) {
     return (

@@ -32,7 +32,7 @@ export const getSettings = () => {
     supabase_url: parsed.supabase_url || DEFAULT_SUPABASE_URL,
     supabase_anon_key: parsed.supabase_anon_key || DEFAULT_SUPABASE_ANON_KEY,
     store_name: parsed.store_name || 'Brushwell Books',
-    currency_symbol: parsed.currency_symbol || 'GH₵',
+    currency_symbol: '¢',
     printer_paper_width: parsed.printer_paper_width || '58mm',
     printer_bluetooth_name: parsed.printer_bluetooth_name || '',
     tax_types: parsed.tax_types,
@@ -43,7 +43,7 @@ export const getSettings = () => {
 };
 
 export const saveSettings = (settings) => {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, currency_symbol: '¢' }));
   _supabaseClient = null; // reset client when settings change
 };
 

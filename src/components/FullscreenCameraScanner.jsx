@@ -28,7 +28,7 @@ export default function FullscreenCameraScanner({
   onCheckout,
   onSwitchToCatalog,
   onQuickRegister,
-  currencySymbol = 'GH₵',
+  currencySymbol = '¢',
   isPaused = false,
   heldOrders = [],
   onOpenHeldOrders,
