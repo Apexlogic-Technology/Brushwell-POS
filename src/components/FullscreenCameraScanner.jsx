@@ -92,10 +92,13 @@ export default function FullscreenCameraScanner({
 
     // Lookup product in inventory by barcode or ID (find all matches to support shared series barcodes)
     const clean = trimmed.toLowerCase();
-    const matches = products.filter(p => 
-      (p && p.barcode && String(p.barcode).trim().toLowerCase() === clean) ||
-      (p && p.id && String(p.id).trim().toLowerCase() === clean)
-    );
+    const matches = products.filter(p => {
+      if (!p) return false;
+      if (p.id && String(p.id).trim().toLowerCase() === clean) return true;
+      // Support pipe-separated multi-barcodes: "code1|code2|code3"
+      const barcodes = String(p.barcode || '').split('|').map(s => s.trim().toLowerCase()).filter(Boolean);
+      return barcodes.includes(clean);
+    });
 
     if (matches.length === 1) {
       const matched = matches[0];

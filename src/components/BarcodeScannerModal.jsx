@@ -121,10 +121,12 @@ export default function BarcodeScannerModal({
     const matches = (Array.isArray(products) ? products : [])
       .filter(Boolean)
       .filter(p => {
-        const pCode = String(p.barcode || '').trim().toLowerCase();
         const pId = p.id ? String(p.id).trim().toLowerCase() : '';
         const target = trimmed.toLowerCase();
-        return pCode === target || pId === target;
+        if (pId === target) return true;
+        // Support pipe-separated multi-barcodes: "code1|code2|code3"
+        const barcodes = String(p.barcode || '').split('|').map(s => s.trim().toLowerCase()).filter(Boolean);
+        return barcodes.includes(target);
       });
 
     if (matches.length > 1) {
@@ -428,10 +430,12 @@ export default function BarcodeScannerModal({
     const match = (Array.isArray(products) ? products : [])
       .filter(Boolean)
       .find(p => {
-        const pCode = String(p.barcode || '').trim().toLowerCase();
         const pId = p.id ? String(p.id).trim().toLowerCase() : '';
         const target = trimmed.toLowerCase();
-        return pCode === target || pId === target;
+        if (pId === target) return true;
+        // Support pipe-separated multi-barcodes
+        const barcodes = String(p.barcode || '').split('|').map(s => s.trim().toLowerCase()).filter(Boolean);
+        return barcodes.includes(target);
       });
 
     setLastScanned({ 

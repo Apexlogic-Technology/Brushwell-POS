@@ -152,12 +152,15 @@ export default function SellingInterface({
       const author = (p.author || '').toLowerCase();
       const category = (p.category_name || '').toLowerCase();
       const prodGrade = getProductGrade(p).toLowerCase();
-      const barcode = String(p.barcode || '').toLowerCase();
       const gradeSynonyms = getGradeSynonyms(`${prodName} ${prodGrade} ${category}`);
+      // Flatten all barcodes (pipe-separated) into a searchable string
+      const allBarcodes = String(p.barcode || '').split('|').map(s => s.trim().toLowerCase()).filter(Boolean);
+      const barcodeStr = allBarcodes.join(' ');
 
-      const fullSearchable = `${prodName} ${publisher} ${author} ${category} ${prodGrade} ${gradeSynonyms} ${barcode}`;
+      const fullSearchable = `${prodName} ${publisher} ${author} ${category} ${prodGrade} ${gradeSynonyms} ${barcodeStr}`;
       const allTokensMatch = qTokens.every(token => fullSearchable.includes(token));
-      const barcodeMatch = barcode.includes(q);
+      // Exact match on any individual barcode
+      const barcodeMatch = allBarcodes.some(b => b.includes(q));
 
       return allTokensMatch || barcodeMatch;
     });

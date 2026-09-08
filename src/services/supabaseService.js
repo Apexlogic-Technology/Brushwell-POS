@@ -216,6 +216,17 @@ export const deleteAllProducts = async () => {
   if (error) throw new Error(error.message);
 };
 
+// ─── Multi-Barcode Helper ────────────────────────────────────────────────────
+// Barcodes are stored as pipe-separated values: "code1|code2|code3"
+// This helper splits, trims and removes empty entries.
+export const parseProductBarcodes = (barcodeStr) => {
+  if (!barcodeStr) return [];
+  return String(barcodeStr)
+    .split('|')
+    .map(s => s.trim())
+    .filter(Boolean);
+};
+
 // Wipe all barcodes — sets barcode to '' for every product, preserving all other data
 export const wipeAllProductBarcodes = async () => {
   const client = getSupabaseClient();
@@ -224,6 +235,19 @@ export const wipeAllProductBarcodes = async () => {
   const { error } = await client
     .from('products')
     .update({ barcode: '', updated_at: new Date().toISOString() })
+    .neq('id', '00000000-0000-0000-0000-000000000000');
+
+  if (error) throw new Error(error.message);
+};
+
+// Wipe ALL product stock quantities to 0
+export const wipeAllProductStock = async () => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+
+  const { error } = await client
+    .from('products')
+    .update({ stock_quantity: 0, updated_at: new Date().toISOString() })
     .neq('id', '00000000-0000-0000-0000-000000000000');
 
   if (error) throw new Error(error.message);
