@@ -85,7 +85,7 @@ const writeEscPosChunked = async (dataArray) => {
 };
 
 // Format and send Bluetooth Receipt
-export const printBluetoothReceipt = async (order, settings) => {
+export const printBluetoothReceipt = async (order, settings = {}) => {
   const encoder = new TextEncoder();
   const buffer = [];
 
@@ -111,7 +111,7 @@ export const printBluetoothReceipt = async (order, settings) => {
   // Metadata Left
   addBytes(ESC, 0x61, 0);
   addText(`Order #: ${order.order_id}\n`);
-  addText(`Date: ${new Date(order.timestamp).toLocaleString()}\n`);
+  addText(`Date: ${new Date(order.timestamp || order.created_at || Date.now()).toLocaleString()}\n`);
   addText(`Cashier: ${order.cashier_name || 'Main Cashier'}\n`);
   addText(`Price Mode: ${order.price_mode === 'wholesale' ? 'WHOLESALE TIER' : 'RETAIL'}\n`);
   addText('--------------------------------\n');
@@ -120,13 +120,13 @@ export const printBluetoothReceipt = async (order, settings) => {
   addText('Item               Qty     Total\n');
   addText('--------------------------------\n');
 
-  order.items.forEach(item => {
-    let name = item.product_name;
+  (order.items || []).forEach(item => {
+    let name = item.product_name || 'Item';
     if (name.length > 18) name = name.substring(0, 17) + '.';
     name = name.padEnd(18, ' ');
 
-    const qty = String(item.quantity).padStart(4, ' ');
-    const price = (`${symbol}` + (item.price * item.quantity).toFixed(2)).padStart(10, ' ');
+    const qty = String(item.quantity || 1).padStart(4, ' ');
+    const price = (`${symbol}` + (parseFloat(item.price || 0) * (item.quantity || 1)).toFixed(2)).padStart(10, ' ');
     addText(`${name}${qty}${price}\n`);
   });
 
@@ -135,24 +135,24 @@ export const printBluetoothReceipt = async (order, settings) => {
   // Totals - Align Right
   addBytes(ESC, 0x61, 2);
   addBytes(ESC, 0x1B, 0x45, 1); // Bold
-  addText(`Subtotal: ${symbol}${order.subtotal.toFixed(2)}\n`);
+  addText(`Subtotal: ${symbol}${Number(order.subtotal || 0).toFixed(2)}\n`);
   if (order.discount > 0) {
-    addText(`Discount: -${symbol}${order.discount.toFixed(2)}\n`);
+    addText(`Discount: -${symbol}${Number(order.discount || 0).toFixed(2)}\n`);
   }
   if (order.apply_tax && order.tax_breakdown && order.tax_breakdown.length > 0) {
     order.tax_breakdown.forEach(t => {
-      addText(`${t.name} (${t.rate_pct}%): +${symbol}${t.amount.toFixed(2)}\n`);
+      addText(`${t.name} (${t.rate_pct}%): +${symbol}${Number(t.amount || 0).toFixed(2)}\n`);
     });
-  } else if (order.apply_tax && order.tax_amount > 0) {
-    addText(`VAT/Tax: +${symbol}${order.tax_amount.toFixed(2)}\n`);
+  } else if (order.apply_tax && (order.tax_amount || order.tax_total) > 0) {
+    addText(`VAT/Tax: +${symbol}${Number(order.tax_amount || order.tax_total || 0).toFixed(2)}\n`);
   }
 
-  addText(`TOTAL: ${symbol}${order.total.toFixed(2)}\n`);
+  addText(`TOTAL: ${symbol}${Number(order.total || 0).toFixed(2)}\n`);
   addBytes(ESC, 0x1B, 0x45, 0); // Bold Off
 
-  addText(`Payment (${order.payment_method}): ${symbol}${(order.cash_given || order.total).toFixed(2)}\n`);
-  if (order.change_due > 0) {
-    addText(`Change: ${symbol}${order.change_due.toFixed(2)}\n`);
+  addText(`Payment (${order.payment_method || 'Cash'}): ${symbol}${Number(order.cash_given || order.amount_tendered || order.total || 0).toFixed(2)}\n`);
+  if ((order.change_due || order.change_given) > 0) {
+    addText(`Change: ${symbol}${Number(order.change_due || order.change_given || 0).toFixed(2)}\n`);
   }
 
   // Footer Center
@@ -167,35 +167,40 @@ export const printBluetoothReceipt = async (order, settings) => {
   await writeEscPosChunked(buffer);
 };
 
-// System / WiFi Printer via styled HTML pop-up window
-export const printSystemWebReceipt = (order, settings) => {
-  const is80mm = settings.printer_paper_width === '80mm';
-  const widthPx = is80mm ? '300px' : '230px';
+// Standard Browser/System Web Print fallback
+export const printSystemWebReceipt = (order, settings = {}) => {
   const symbol = '¢';
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
 
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) return;
-
-  const html = `
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`
     <!DOCTYPE html>
     <html>
       <head>
         <title>Receipt #${order.order_id}</title>
         <style>
-          @page { margin: 0; }
+          @page { margin: 0; size: 80mm auto; }
           body {
-            font-family: Inter, system-ui, -apple-system, sans-serif;
-            width: ${widthPx};
-            margin: 0 auto;
-            padding: 10px;
+            font-family: monospace;
             font-size: 11px;
-            color: #111;
+            width: 72mm;
+            margin: 0 auto;
+            padding: 8px 4px;
+            color: #000;
           }
           .text-center { text-align: center; }
           .text-right { text-align: right; }
           .bold { font-weight: bold; }
           .divider {
-            border-top: 1px dashed #999;
+            border-top: 1px dashed #000;
             margin: 6px 0;
           }
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -215,7 +220,7 @@ export const printSystemWebReceipt = (order, settings) => {
 
         <div>
           <div>Order: #${order.order_id}</div>
-          <div>Date: ${new Date(order.created_at || Date.now()).toLocaleString()}</div>
+          <div>Date: ${new Date(order.created_at || order.timestamp || Date.now()).toLocaleString()}</div>
           <div>Customer: ${order.customer_name || 'Walk-in Customer'}</div>
           <div>Cashier: ${order.cashier_name || 'Staff'}</div>
           <div>Tier: ${(order.price_mode || 'retail').toUpperCase()}</div>
@@ -232,11 +237,11 @@ export const printSystemWebReceipt = (order, settings) => {
             </tr>
           </thead>
           <tbody>
-            ${order.items.map(item => `
+            ${(order.items || []).map(item => `
               <tr>
-                <td style="padding: 2px 0;">${item.product_name}</td>
-                <td style="text-align: center;">${item.quantity}</td>
-                <td style="text-align: right;">${symbol}${(item.price * item.quantity).toFixed(2)}</td>
+                <td style="padding: 2px 0;">${item.product_name || 'Item'}</td>
+                <td style="text-align: center;">${item.quantity || 1}</td>
+                <td style="text-align: right;">${symbol}${(parseFloat(item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -245,22 +250,22 @@ export const printSystemWebReceipt = (order, settings) => {
         <div class="divider"></div>
 
         <div class="text-right">
-          <div>Subtotal: ${symbol}${order.subtotal.toFixed(2)}</div>
-          ${order.discount > 0 ? `<div>Discount: -${symbol}${order.discount.toFixed(2)}</div>` : ''}
+          <div>Subtotal: ${symbol}${Number(order.subtotal || 0).toFixed(2)}</div>
+          ${order.discount > 0 ? `<div>Discount: -${symbol}${Number(order.discount || 0).toFixed(2)}</div>` : ''}
           ${order.apply_tax && order.tax_breakdown && order.tax_breakdown.length > 0 ? (
-            order.tax_breakdown.map(t => `<div>${t.name} (${t.rate_pct}%): +${symbol}${t.amount.toFixed(2)}</div>`).join('')
-          ) : order.apply_tax && order.tax_amount > 0 ? `<div>VAT/Tax: +${symbol}${order.tax_amount.toFixed(2)}</div>` : ''}
+            order.tax_breakdown.map(t => `<div>${t.name} (${t.rate_pct}%): +${symbol}${Number(t.amount || 0).toFixed(2)}</div>`).join('')
+          ) : order.apply_tax && (order.tax_amount || order.tax_total) > 0 ? `<div>VAT/Tax: +${symbol}${Number(order.tax_amount || order.tax_total || 0).toFixed(2)}</div>` : ''}
 
           <div style="font-size: 13px; font-weight: bold; margin-top: 4px;">
-            TOTAL PAID: ${symbol}${order.total.toFixed(2)}
+            TOTAL PAID: ${symbol}${Number(order.total || 0).toFixed(2)}
           </div>
           <div style="font-size: 11px; margin-top: 2px;">
             Payment Method: ${order.payment_method || 'Cash'}
           </div>
           <div style="font-size: 11px;">
-            Amount Paid: ${symbol}${(order.cash_given || order.total).toFixed(2)}
+            Amount Paid: ${symbol}${Number(order.cash_given || order.amount_tendered || order.total || 0).toFixed(2)}
           </div>
-          ${order.change_due > 0 ? `<div>Change Due: ${symbol}${order.change_due.toFixed(2)}</div>` : ''}
+          ${(order.change_due || order.change_given) > 0 ? `<div>Change Due: ${symbol}${Number(order.change_due || order.change_given || 0).toFixed(2)}</div>` : ''}
         </div>
 
         <div class="divider"></div>
@@ -269,17 +274,23 @@ export const printSystemWebReceipt = (order, settings) => {
           Thank you for shopping with us!<br/>
           ${settings.store_name || 'Brushwell Books'} • Digital Receipt
         </div>
-
-        <script>
-          setTimeout(() => {
-            window.print();
-            window.close();
-          }, 300);
-        </script>
       </body>
     </html>
-  `;
+  `);
+  doc.close();
 
-  printWindow.document.write(html);
-  printWindow.document.close();
+  setTimeout(() => {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } catch (e) {
+      console.error('System print error:', e);
+    } finally {
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      }, 1000);
+    }
+  }, 250);
 };

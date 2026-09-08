@@ -113,9 +113,9 @@ export default function FullscreenCameraScanner({
       if (onAddToCart) onAddToCart(matched);
 
       // 4. Show HUD toast
-      const inCart = cart.find(c => c.id === matched.id);
+      const inCart = (cart || []).find(c => c.id === matched.id);
       const newQty = (inCart?.quantity || 0) + 1;
-      const unitPrice = priceMode === 'wholesale' ? (matched.wholesale_price || 0) : (matched.retail_price || 0);
+      const unitPrice = priceMode === 'wholesale' ? (parseFloat(matched.wholesale_price) || 0) : (parseFloat(matched.retail_price) || 0);
 
       if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
       setLastNotification({
@@ -123,7 +123,7 @@ export default function FullscreenCameraScanner({
         product: matched,
         code: trimmed,
         message: `Added: ${matched.product_name}`,
-        subMessage: `${currencySymbol}${unitPrice.toFixed(2)} · Cart: ×${newQty}`
+        subMessage: `${currencySymbol}${Number(unitPrice).toFixed(2)} · Cart: ×${newQty}`
       });
       notifTimerRef.current = setTimeout(() => setLastNotification(null), 2200);
 
@@ -1038,16 +1038,16 @@ export default function FullscreenCameraScanner({
         onSelectProduct={(product) => {
           if (onAddToCart) onAddToCart(product);
           if (soundEnabled) playBeep(false);
-          const inCart = cart.find(c => c.id === product.id);
+          const inCart = (cart || []).find(c => c.id === product.id);
           const newQty = (inCart?.quantity || 0) + 1;
-          const unitPrice = priceMode === 'wholesale' ? (product.wholesale_price || 0) : (product.retail_price || 0);
+          const unitPrice = priceMode === 'wholesale' ? (parseFloat(product.wholesale_price) || 0) : (parseFloat(product.retail_price) || 0);
           if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
           setLastNotification({
             type: 'success',
             product: product,
             code: disambigData?.barcode || '',
             message: `Added: ${product.product_name}`,
-            subMessage: `${currencySymbol}${unitPrice.toFixed(2)} · Cart: ×${newQty}`
+            subMessage: `${currencySymbol}${Number(unitPrice).toFixed(2)} · Cart: ×${newQty}`
           });
           notifTimerRef.current = setTimeout(() => setLastNotification(null), 2200);
           setDisambigData(null);

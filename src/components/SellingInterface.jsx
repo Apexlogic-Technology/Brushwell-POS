@@ -13,9 +13,9 @@ import FullscreenCameraScanner from './FullscreenCameraScanner';
 export default function SellingInterface({ 
   products, 
   categories, 
-  cart, 
+  cart = [], 
   setCart, 
-  settings, 
+  settings = {}, 
   onCheckoutSuccess,
   onOpenScanner,
   onOpenSettings,
@@ -68,14 +68,14 @@ export default function SellingInterface({
     'Mobile Transfer': ''
   });
   const [orderDiscount, setOrderDiscount] = useState(0);
-  const [applyTax, setApplyTax] = useState(settings.tax_enabled_default || false);
+  const [applyTax, setApplyTax] = useState(settings?.tax_enabled_default || false);
   const [showTaxBreakdown, setShowTaxBreakdown] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
   const [visibleCount, setVisibleCount] = useState(40);
   const [customerName, setCustomerName] = useState('');
   const currencySymbol = '¢';
-  const taxTypes = (settings.tax_types && settings.tax_types.length > 0)
+  const taxTypes = (settings?.tax_types && settings.tax_types.length > 0)
     ? settings.tax_types
     : DEFAULT_TAX_TYPES;
 
@@ -174,16 +174,16 @@ export default function SellingInterface({
 
   // Calculate cart totals & multi-tax breakdown
   // grossSubtotal = sum of (basePrice × qty) — before any discounts, using per-item priceMode
-  const grossSubtotal = cart.reduce((sum, item) => {
+  const grossSubtotal = (cart || []).reduce((sum, item) => {
     const mode = item.priceMode || priceMode;
-    const basePrice = mode === 'wholesale' ? (item.wholesale_price || 0) : (item.retail_price || 0);
-    return sum + (basePrice * item.quantity);
+    const basePrice = mode === 'wholesale' ? (parseFloat(item.wholesale_price) || 0) : (parseFloat(item.retail_price) || 0);
+    return sum + (basePrice * (item.quantity || 1));
   }, 0);
 
   // itemDiscountsTotal = sum of all per-item discounts × qty
-  const itemDiscountsTotal = cart.reduce((sum, item) => {
+  const itemDiscountsTotal = (cart || []).reduce((sum, item) => {
     const disc = Math.max(0, parseFloat(item.discount) || 0);
-    return sum + (disc * item.quantity);
+    return sum + (disc * (item.quantity || 1));
   }, 0);
 
   // subtotal = grossSubtotal minus per-item discounts
@@ -375,9 +375,9 @@ export default function SellingInterface({
       timestamp: nowIso,
       created_at: nowIso,
       price_mode: priceMode,
-      items: cart.map(item => {
+      items: (cart || []).map(item => {
         const mode = item.priceMode || priceMode;
-        const basePrice = mode === 'wholesale' ? (item.wholesale_price || 0) : (item.retail_price || 0);
+        const basePrice = mode === 'wholesale' ? (parseFloat(item.wholesale_price) || 0) : (parseFloat(item.retail_price) || 0);
         const itemDisc = Math.max(0, parseFloat(item.discount) || 0);
         const effectivePrice = Math.max(0, basePrice - itemDisc);
         const grade = getProductGrade(item);
@@ -876,11 +876,11 @@ export default function SellingInterface({
       {/* Book Catalog List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
         {displayedProducts.map(product => {
-          const price = priceMode === 'wholesale' ? (product.wholesale_price || 0) : (product.retail_price || 0);
-          const lowThreshold = parseInt(settings.low_stock_threshold, 10) || 5;
+          const price = priceMode === 'wholesale' ? (parseFloat(product.wholesale_price) || 0) : (parseFloat(product.retail_price) || 0);
+          const lowThreshold = parseInt(settings?.low_stock_threshold, 10) || 5;
           const isOutOfStock = (product.stock_quantity || 0) <= 0;
           const isLowStock = !isOutOfStock && product.stock_quantity <= lowThreshold;
-          const inCartItem = cart.find(c => c.id === product.id);
+          const inCartItem = (cart || []).find(c => c.id === product.id);
 
           return (
             <div
@@ -982,7 +982,7 @@ export default function SellingInterface({
 
               {/* Price */}
               <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--primary)', flexShrink: 0, minWidth: '58px', textAlign: 'right' }}>
-                {currencySymbol}{price.toFixed(2)}
+                {currencySymbol}{Number(price).toFixed(2)}
               </div>
 
               {/* Cart qty / Add button */}
@@ -1149,13 +1149,13 @@ export default function SellingInterface({
 
               {/* Item List — No artificial maxHeight cap so all items render clearly */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                {cart.map(item => {
+                {(cart || []).map(item => {
                   const itemMode = item.priceMode || priceMode;
-                  const basePrice = itemMode === 'wholesale' ? (item.wholesale_price || 0) : (item.retail_price || 0);
+                  const basePrice = itemMode === 'wholesale' ? (parseFloat(item.wholesale_price) || 0) : (parseFloat(item.retail_price) || 0);
                   const itemDisc = Math.max(0, parseFloat(item.discount) || 0);
                   const effectiveUnitPrice = Math.max(0, basePrice - itemDisc);
-                  const lineTotal = effectiveUnitPrice * item.quantity;
-                  const hasWholesale = (item.wholesale_price || 0) > 0;
+                  const lineTotal = effectiveUnitPrice * (item.quantity || 1);
+                  const hasWholesale = (parseFloat(item.wholesale_price) || 0) > 0;
 
                   return (
                     <div key={item.id} style={{
@@ -1315,9 +1315,9 @@ export default function SellingInterface({
                           )}
 
                           <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                            {currencySymbol}{basePrice.toFixed(2)}
+                            {currencySymbol}{Number(basePrice).toFixed(2)}
                             {itemDisc > 0 && <span style={{ color: 'var(--accent-rose)', fontWeight: 700 }}> (-{currencySymbol}{itemDisc.toFixed(2)})</span>}
-                            {' '}× <strong>{item.quantity}</strong> = <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{currencySymbol}{lineTotal.toFixed(2)}</span>
+                            {' '}× <strong>{item.quantity}</strong> = <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{currencySymbol}{Number(lineTotal).toFixed(2)}</span>
                           </div>
                         </div>
 

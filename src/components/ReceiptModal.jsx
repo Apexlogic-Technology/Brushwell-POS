@@ -3,7 +3,7 @@ import { X, Printer, Bluetooth, Share2, Check, MessageSquare, Phone, Home, Arrow
 import { printBluetoothReceipt, printSystemWebReceipt } from '../services/printerService';
 import { downloadReceiptPDF, shareReceiptPDFViaWhatsApp, formatWhatsAppPhone } from '../services/pdfService';
 
-export default function ReceiptModal({ isOpen, onClose, order, settings }) {
+export default function ReceiptModal({ isOpen, onClose, order, settings = {} }) {
   const [btStatus, setBtStatus] = useState('idle');
   const [phoneInput, setPhoneInput] = useState('');
   const [isSharingPdf, setIsSharingPdf] = useState(false);
@@ -84,7 +84,7 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
 
   const generateReceiptText = () => {
     const dateStr = new Date(order.timestamp || order.created_at || Date.now()).toLocaleString();
-    const itemsStr = (order.items || []).map(i => `• ${i.product_name} (x${i.quantity}) = ${currencySymbol}${(i.price * i.quantity).toFixed(2)}`).join('\n');
+    const itemsStr = (order.items || []).map(i => `• ${i.product_name} (x${i.quantity}) = ${currencySymbol}${(parseFloat(i.price || 0) * (i.quantity || 1)).toFixed(2)}`).join('\n');
     const custName = order.customer_name || 'Customer';
 
     return `🧾 *RECEIPT #${order.order_id}*\n*${settings.store_name || 'BRUSHWELL BOOKS'}*\n\nCustomer: ${custName}\nDate: ${dateStr}\nCashier: ${order.cashier_name || 'Staff'}\nTier: ${order.price_mode === 'wholesale' ? 'WHOLESALE' : 'RETAIL'}\n\n*ITEMS:*\n${itemsStr}\n\nSubtotal: ${currencySymbol}${Number(order.subtotal || 0).toFixed(2)}\n${order.discount ? `Discount: -${currencySymbol}${Number(order.discount).toFixed(2)}\n` : ''}${order.apply_tax || order.tax_applied ? `Tax: +${currencySymbol}${Number(order.tax_total || order.tax_amount || 0).toFixed(2)}\n` : ''}*TOTAL PAID: ${currencySymbol}${Number(order.total || 0).toFixed(2)}*\nPayment Method: ${order.payment_method || 'Cash'}\n\nThank you for shopping with ${settings.store_name || 'Brushwell Books'}!`;
@@ -170,7 +170,7 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
                     <tr key={i}>
                       <td style={{ paddingTop: '4px', maxWidth: '140px', fontWeight: 600 }}>{item.product_name}</td>
                       <td style={{ textAlign: 'center', paddingTop: '4px' }}>{item.quantity}</td>
-                      <td style={{ textAlign: 'right', paddingTop: '4px', fontWeight: 700 }}>{currencySymbol}{(item.price * item.quantity).toFixed(2)}</td>
+                      <td style={{ textAlign: 'right', paddingTop: '4px', fontWeight: 700 }}>{currencySymbol}{(parseFloat(item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -183,7 +183,7 @@ export default function ReceiptModal({ isOpen, onClose, order, settings }) {
               {order.discount > 0 && <div style={{ color: 'var(--accent-rose)' }}>Discount: -{currencySymbol}{Number(order.discount).toFixed(2)}</div>}
               {(order.apply_tax || order.tax_applied) && order.tax_breakdown && order.tax_breakdown.length > 0 ? (
                 order.tax_breakdown.map((t, idx) => (
-                  <div key={idx} style={{ color: 'var(--primary)' }}>{t.name} ({t.rate_pct}%): +{currencySymbol}{t.amount.toFixed(2)}</div>
+                  <div key={idx} style={{ color: 'var(--primary)' }}>{t.name} ({t.rate_pct}%): +{currencySymbol}{Number(t.amount || 0).toFixed(2)}</div>
                 ))
               ) : (order.apply_tax || order.tax_applied) && (order.tax_amount || order.tax_total) > 0 ? (
                 <div style={{ color: 'var(--primary)' }}>VAT / Tax: +{currencySymbol}{Number(order.tax_total || order.tax_amount).toFixed(2)}</div>

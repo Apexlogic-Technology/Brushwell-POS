@@ -249,7 +249,7 @@ export default function VisualSearchModal({
       setAddedToCartSuccess(true);
       setStatusMessage(`Added "${match.product_name}" to cart!`);
     } else if (match) {
-      setStatusMessage(`Found: ${match.product_name} — ${currencySymbol}${(match.retail_price || 0).toFixed(2)}`);
+      setStatusMessage(`Found: ${match.product_name} — ${currencySymbol}${Number(match.retail_price || 0).toFixed(2)}`);
     } else {
       setStatusMessage(`Barcode ${code} not yet in inventory.`);
     }
@@ -1025,11 +1025,11 @@ export default function VisualSearchModal({
                     </div>
                     <div style={{ display: 'flex', gap: '0.8rem', marginTop: '0.25rem', alignItems: 'center' }}>
                       <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--primary)' }}>
-                        {currencySymbol}{(matchedProduct.retail_price || 0).toFixed(2)}
+                        {currencySymbol}{Number(matchedProduct.retail_price || 0).toFixed(2)}
                       </div>
                       {matchedProduct.wholesale_price && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Wholesale: {currencySymbol}{(matchedProduct.wholesale_price || 0).toFixed(2)}
+                          Wholesale: {currencySymbol}{Number(matchedProduct.wholesale_price || 0).toFixed(2)}
                         </div>
                       )}
                       <div style={{
@@ -1147,7 +1147,7 @@ export default function VisualSearchModal({
                       }}
                     >
                       <span style={{ fontWeight: 700 }}>{p.product_name}</span>
-                      <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{currencySymbol}{(p.retail_price || 0).toFixed(2)}</span>
+                      <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{currencySymbol}{Number(p.retail_price || 0).toFixed(2)}</span>
                     </div>
                   ))}
                 </div>

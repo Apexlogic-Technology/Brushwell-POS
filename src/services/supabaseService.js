@@ -252,20 +252,24 @@ export const processCheckout = async (orderPayload) => {
     cashier_name:    orderPayload.cashier_name || 'Staff',
     cashier_role:    orderPayload.cashier_role || 'attendant',
     items:           orderPayload.items,
-    subtotal:        orderPayload.subtotal || 0,
-    tax_total:       orderPayload.tax_total ?? orderPayload.tax_amount ?? 0,
+    subtotal:        parseFloat(orderPayload.subtotal) || 0,
+    tax_total:       parseFloat(orderPayload.tax_total ?? orderPayload.tax_amount ?? 0) || 0,
     tax_breakdown:   orderPayload.tax_breakdown || [],
-    total:           orderPayload.total || 0,
+    total:           parseFloat(orderPayload.total) || 0,
     payment_method:  orderPayload.payment_method || 'Cash',
-    split_payments:  orderPayload.split_payments || null,
-    amount_tendered: orderPayload.amount_tendered ?? orderPayload.cash_given ?? orderPayload.total ?? 0,
-    change_given:    orderPayload.change_given ?? orderPayload.change_due ?? 0,
+    amount_tendered: parseFloat(orderPayload.amount_tendered ?? orderPayload.cash_given ?? orderPayload.total ?? 0) || 0,
+    change_given:    parseFloat(orderPayload.change_given ?? orderPayload.change_due ?? 0) || 0,
     customer_name:   orderPayload.customer_name || 'Walk-in Customer',
     customer_phone:  orderPayload.customer_phone || '',
-    tax_applied:     orderPayload.tax_applied ?? orderPayload.apply_tax ?? false,
+    tax_applied:     Boolean(orderPayload.tax_applied ?? orderPayload.apply_tax ?? false),
     order_type:      'sale',
     created_at:      orderPayload.created_at || orderPayload.timestamp || new Date().toISOString()
   };
+
+  // Only include split_payments if it actually exists in payload and is non-empty
+  if (orderPayload.split_payments && Array.isArray(orderPayload.split_payments) && orderPayload.split_payments.length > 0) {
+    payload.split_payments = orderPayload.split_payments;
+  }
 
   let { data: order, error: orderError } = await client
     .from('orders')
@@ -276,18 +280,17 @@ export const processCheckout = async (orderPayload) => {
   // Fallback: strip columns that might not exist in schema yet, retry
   if (orderError) {
     const msg = orderError.message || '';
-    if (msg.includes('customer_name') || msg.includes('customer_phone') || msg.includes('schema cache')) {
-      delete payload.customer_name;
-      delete payload.customer_phone;
-    }
     if (msg.includes('split_payments')) {
       delete payload.split_payments;
     }
-    if (msg.includes('customer_name') || msg.includes('split_payments') || msg.includes('schema cache')) {
-      const retry = await client.from('orders').insert(payload).select().single();
-      order = retry.data;
-      orderError = retry.error;
+    if (msg.includes('customer_name') || msg.includes('customer_phone') || msg.includes('schema cache')) {
+      delete payload.customer_name;
+      delete payload.customer_phone;
+      delete payload.split_payments;
     }
+    const retry = await client.from('orders').insert(payload).select().single();
+    order = retry.data;
+    orderError = retry.error;
   }
 
   if (orderError) throw new Error(orderError.message);
