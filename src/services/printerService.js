@@ -127,17 +127,27 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
     buffer.push(...encoded);
   };
 
-  const symbol = '¢';
+  // Use clean ASCII currency string to prevent Chinese character rendering on ESC/POS thermal printers
+  let cur = (settings.currency_symbol || 'GHc').trim();
+  if (cur === '¢' || cur === '₵' || cur === 'GH¢' || !cur) {
+    cur = 'GHc';
+  }
+  const symbol = cur.endsWith(' ') ? cur : `${cur} `;
 
-  // Initialize
-  addBytes(ESC, 0x40);
+  // Initialize printer and cancel Chinese character mode
+  addBytes(ESC, 0x40);        // ESC @ (Initialize printer)
+  addBytes(0x1C, 0x2E);       // FS . (Cancel Chinese/Kanji mode, select ASCII mode)
+  addBytes(ESC, 0x74, 0x00);  // ESC t 0 (Select character code table: PC437 Standard Europe/USA)
+  addBytes(ESC, 0x52, 0x00);  // ESC R 0 (Select international character set: USA)
 
   // Header Center
   addBytes(ESC, 0x61, 1);
   addBytes(ESC, 0x21, 0x20); // Double height/width
-  addText(`${settings.store_name || 'BRUSHWELL BOOKS'}\n`);
+  addText('Brushwell POS\n');
   addBytes(ESC, 0x21, 0x00); // Reset font
-  addText('Bookshop Mobile POS\n');
+  if (settings.store_name && settings.store_name.trim() && settings.store_name.trim().toLowerCase() !== 'brushwell pos') {
+    addText(`${settings.store_name.trim()}\n`);
+  }
   addText('--------------------------------\n');
 
   // Metadata Left
@@ -148,25 +158,25 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
   addText(`Price Mode: ${order.price_mode === 'wholesale' ? 'WHOLESALE TIER' : 'RETAIL'}\n`);
   addText('--------------------------------\n');
 
-  // Table Columns: Item (18) Qty (4) Total (10)
+  // Table Columns: Item (17) Qty (3) Total (10) -> 32 cols total
   addText('Item               Qty     Total\n');
   addText('--------------------------------\n');
 
   (order.items || []).forEach(item => {
     let name = item.product_name || 'Item';
-    if (name.length > 18) name = name.substring(0, 17) + '.';
-    name = name.padEnd(18, ' ');
+    if (name.length > 17) name = name.substring(0, 16) + '.';
+    name = name.padEnd(17, ' ');
 
-    const qty = String(item.quantity || 1).padStart(4, ' ');
+    const qty = String(item.quantity || 1).padStart(3, ' ');
     const price = (`${symbol}` + (parseFloat(item.price || 0) * (item.quantity || 1)).toFixed(2)).padStart(10, ' ');
-    addText(`${name}${qty}${price}\n`);
+    addText(`${name} ${qty} ${price}\n`);
   });
 
   addText('--------------------------------\n');
 
   // Totals - Align Right
   addBytes(ESC, 0x61, 2);
-  addBytes(ESC, 0x1B, 0x45, 1); // Bold
+  addBytes(ESC, 0x45, 1); // Bold ON (0x1B 0x45 0x01)
   addText(`Subtotal: ${symbol}${Number(order.subtotal || 0).toFixed(2)}\n`);
   if (order.discount > 0) {
     addText(`Discount: -${symbol}${Number(order.discount || 0).toFixed(2)}\n`);
@@ -180,7 +190,7 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
   }
 
   addText(`TOTAL: ${symbol}${Number(order.total || 0).toFixed(2)}\n`);
-  addBytes(ESC, 0x1B, 0x45, 0); // Bold Off
+  addBytes(ESC, 0x45, 0); // Bold OFF (0x1B 0x45 0x00)
 
   addText(`Payment (${order.payment_method || 'Cash'}): ${symbol}${Number(order.cash_given || order.amount_tendered || order.total || 0).toFixed(2)}\n`);
   if ((order.change_due || order.change_given) > 0) {
@@ -190,8 +200,8 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
   // Footer Center
   addBytes(ESC, 0x61, 1);
   addText('--------------------------------\n');
-  addText('Thank you for reading with us!\n');
-  addText('Brushwell Books System\n\n\n');
+  addText('Thank you for shopping with us!\n');
+  addText('Brushwell POS\n\n\n');
 
   // Paper Cut
   addBytes(GS, 0x56, 0x41, 0);
