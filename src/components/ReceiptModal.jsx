@@ -27,9 +27,13 @@ export default function ReceiptModal({ isOpen, onClose, order, settings = {} }) 
       setBtStatus('done');
       setTimeout(() => setBtStatus('idle'), 3000);
     } catch (err) {
-      console.error(err);
+      console.error('Bluetooth print error:', err);
       setBtStatus('error');
       setTimeout(() => setBtStatus('idle'), 4000);
+      // Only alert if not a user cancel action (NotFoundError)
+      if (err && err.name !== 'NotFoundError') {
+        alert(err.message || 'Bluetooth printing failed.');
+      }
     }
   };
 

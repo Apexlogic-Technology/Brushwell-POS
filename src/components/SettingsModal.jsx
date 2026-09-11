@@ -517,6 +517,20 @@ export default function SettingsModal({ isOpen, onClose, onSettingsSaved, isAdmi
                   </button>
               }
             </div>
+
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.07)',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '0.5rem 0.65rem',
+              fontSize: '0.72rem',
+              color: 'var(--text-muted)',
+              lineHeight: 1.45,
+              marginTop: '0.45rem'
+            }}>
+              💡 <b>Android:</b> Open in Google Chrome. Ensure Bluetooth and Location/Nearby Devices are enabled. Select your printer (often named <i>MTP-II</i>, <i>POS-58</i>, <i>PT-210</i>, or <i>InnerPrinter</i>).<br />
+              🍎 <b>iOS (iPhone/iPad):</b> Apple does not support Web Bluetooth in Safari. To print on iOS: use <b>System Print</b> on the receipt screen, or open this POS in the free <b>Bluefy</b> browser from the App Store.
+            </div>
           </section>
 
           {/* Barcode Scanner & Reader (Available to All Stations) */}

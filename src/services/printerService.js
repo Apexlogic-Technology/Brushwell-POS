@@ -8,39 +8,66 @@ let printerCharacteristic = null;
 const ESC = 0x1B;
 const GS = 0x1D;
 
+export const isBluetoothSupported = () => {
+  return typeof navigator !== 'undefined' && Boolean(navigator.bluetooth);
+};
+
+export const isBluetoothConnected = () => {
+  return Boolean(gattServer && gattServer.connected && printerCharacteristic);
+};
+
 export const connectBluetoothPrinter = async () => {
   if (!navigator.bluetooth) {
-    throw new Error('Web Bluetooth API is not supported in this browser. Please use Chrome on Android or a Bluetooth-enabled browser.');
+    const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIOS) {
+      throw new Error('iOS Safari & Chrome do not support Web Bluetooth. Please use the free "Bluefy" browser from the App Store for direct Bluetooth printing, or use "System Print".');
+    }
+    throw new Error('Web Bluetooth API is not supported in this browser. Please use Google Chrome on Android or Windows.');
   }
 
   try {
     bluetoothDevice = await navigator.bluetooth.requestDevice({
-      filters: [
-        { services: ['000018f0-0000-1000-8000-00805f9b34fb'] },
-        { services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] },
-        { services: ['0000ff00-0000-1000-8000-00805f9b34fb'] }
-      ],
+      acceptAllDevices: true,
       optionalServices: [
-        '000018f0-0000-1000-8000-00805f9b34fb',
-        'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
-        '0000ff00-0000-1000-8000-00805f9b34fb',
-        '0000180a-0000-1000-8000-00805f9b34fb'
+        '000018f0-0000-1000-8000-00805f9b34fb', // Standard ESC/POS
+        '0000ffe0-0000-1000-8000-00805f9b34fb', // Most common 58mm/80mm BLE thermal (MPT-II, POS-58, PT-210, GOOJPRT)
+        '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC transparent serial (Xprinter, Rongta)
+        'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // CPCL/ESC-POS mobile
+        '0000ff00-0000-1000-8000-00805f9b34fb', // Custom vendor serial
+        '0000fee7-0000-1000-8000-00805f9b34fb', // Tencent/WeChat BLE printers
+        '0000fff0-0000-1000-8000-00805f9b34fb', // Custom serial
+        '0000ae00-0000-1000-8000-00805f9b34fb', // Zjiang POS-5802
+        '0000ae30-0000-1000-8000-00805f9b34fb', // Zjiang
+        '0000180a-0000-1000-8000-00805f9b34fb'  // Device Info
       ]
     });
 
+    if (!bluetoothDevice.gatt) {
+      throw new Error('Bluetooth device does not support GATT connectivity.');
+    }
+
     gattServer = await bluetoothDevice.gatt.connect();
 
-    // Find printer write characteristic
+    // Listen for unexpected disconnections
+    bluetoothDevice.addEventListener('gattserverdisconnected', () => {
+      printerCharacteristic = null;
+    });
+
+    // Find printer write characteristic across primary services
     const services = await gattServer.getPrimaryServices();
     for (const service of services) {
-      const characteristics = await service.getCharacteristics();
-      for (const char of characteristics) {
-        if (char.properties.write || char.properties.writeWithoutResponse) {
-          printerCharacteristic = char;
-          break;
+      try {
+        const characteristics = await service.getCharacteristics();
+        for (const char of characteristics) {
+          if (char.properties.write || char.properties.writeWithoutResponse) {
+            printerCharacteristic = char;
+            break;
+          }
         }
+        if (printerCharacteristic) break;
+      } catch (e) {
+        // continue searching other services
       }
-      if (printerCharacteristic) break;
     }
 
     if (!printerCharacteristic) {
@@ -86,6 +113,11 @@ const writeEscPosChunked = async (dataArray) => {
 
 // Format and send Bluetooth Receipt
 export const printBluetoothReceipt = async (order, settings = {}) => {
+  // If not currently connected, prompt to connect directly from the receipt modal
+  if (!printerCharacteristic || !gattServer || !gattServer.connected) {
+    await connectBluetoothPrinter();
+  }
+
   const encoder = new TextEncoder();
   const buffer = [];
 
