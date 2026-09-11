@@ -158,18 +158,45 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
   addText(`Price Mode: ${order.price_mode === 'wholesale' ? 'WHOLESALE TIER' : 'RETAIL'}\n`);
   addText('--------------------------------\n');
 
-  // Table Columns: Item (17) Qty (3) Total (10) -> 32 cols total
-  addText('Item               Qty     Total\n');
+  // Items: name on line 1 (full width, wrapped), qty x unit = total on line 2
   addText('--------------------------------\n');
 
+  const COLS = 32; // 58mm printer = 32 chars per line
   (order.items || []).forEach(item => {
-    let name = item.product_name || 'Item';
-    if (name.length > 17) name = name.substring(0, 16) + '.';
-    name = name.padEnd(17, ' ');
+    const fullName = (item.product_name || 'Item').trim();
 
-    const qty = String(item.quantity || 1).padStart(3, ' ');
-    const price = (`${symbol}` + (parseFloat(item.price || 0) * (item.quantity || 1)).toFixed(2)).padStart(10, ' ');
-    addText(`${name} ${qty} ${price}\n`);
+    // Word-wrap name to COLS chars
+    const words = fullName.split(' ');
+    let currentLine = '';
+    const nameLines = [];
+    for (const word of words) {
+      if ((currentLine + (currentLine ? ' ' : '') + word).length <= COLS) {
+        currentLine += (currentLine ? ' ' : '') + word;
+      } else {
+        if (currentLine) nameLines.push(currentLine);
+        // If a single word is longer than COLS, hard-break it
+        if (word.length > COLS) {
+          for (let i = 0; i < word.length; i += COLS) {
+            nameLines.push(word.substring(i, i + COLS));
+          }
+          currentLine = '';
+        } else {
+          currentLine = word;
+        }
+      }
+    }
+    if (currentLine) nameLines.push(currentLine);
+
+    nameLines.forEach(l => addText(`${l}\n`));
+
+    // Detail line: right-aligned  "  x3  GHc 1.50 = GHc 4.50"
+    const qty       = item.quantity || 1;
+    const unitPrice = parseFloat(item.price || 0);
+    const lineTotal = (unitPrice * qty).toFixed(2);
+    const detail    = `  x${qty}  ${symbol}${unitPrice.toFixed(2)} = ${symbol}${lineTotal}`;
+    // Right-align detail within COLS
+    const padded    = detail.length < COLS ? detail.padStart(COLS) : detail;
+    addText(`${padded}\n`);
   });
 
   addText('--------------------------------\n');
@@ -204,6 +231,71 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
   addText('Brushwell POS\n\n\n');
 
   // Paper Cut
+  addBytes(GS, 0x56, 0x41, 0);
+
+  await writeEscPosChunked(buffer);
+};
+
+// Format and send a Report summary to the Bluetooth thermal printer
+export const printBluetoothReport = async (report, settings = {}) => {
+  // Auto-connect if not connected
+  if (!printerCharacteristic || !gattServer || !gattServer.connected) {
+    await connectBluetoothPrinter();
+  }
+
+  const encoder = new TextEncoder();
+  const buffer = [];
+
+  const addBytes = (...bytes) => buffer.push(...bytes);
+  const addText  = (str)   => buffer.push(...encoder.encode(str));
+  const line     = ()      => addText('--------------------------------\n');
+
+  // Safe ASCII currency
+  let cur = (settings.currency_symbol || 'GHc').trim();
+  if (cur === '¢' || cur === '₵' || cur === 'GH¢' || !cur) cur = 'GHc';
+  const sym = cur.endsWith(' ') ? cur : `${cur} `;
+
+  // Init printer
+  addBytes(ESC, 0x40);        // ESC @ reset
+  addBytes(0x1C, 0x2E);       // FS . cancel Chinese mode
+  addBytes(ESC, 0x74, 0x00);  // ESC t 0 PC437 codepage
+  addBytes(ESC, 0x52, 0x00);  // ESC R 0 USA charset
+
+  // Header – centred
+  addBytes(ESC, 0x61, 1);
+  addBytes(ESC, 0x21, 0x20);
+  addText('Brushwell POS\n');
+  addBytes(ESC, 0x21, 0x00);
+  if (settings.store_name && settings.store_name.trim() &&
+      settings.store_name.trim().toLowerCase() !== 'brushwell pos') {
+    addText(`${settings.store_name.trim()}\n`);
+  }
+
+  addText(`${(report.title || 'REPORT').toUpperCase()}\n`);
+  line();
+
+  // Metadata – left
+  addBytes(ESC, 0x61, 0);
+  addText(`Date: ${report.date || new Date().toLocaleDateString()}\n`);
+  addText(`Time: ${report.time || new Date().toLocaleTimeString()}\n`);
+  if (report.generatedBy) addText(`By: ${report.generatedBy}\n`);
+  line();
+
+  // Key-value rows
+  (report.rows || []).forEach(row => {
+    if (row === '---') { line(); return; }
+    const label = String(row.label || '').padEnd(16, ' ').substring(0, 16);
+    const value = String(row.value || '');
+    addText(`${label} ${value}\n`);
+  });
+
+  line();
+
+  // Footer
+  addBytes(ESC, 0x61, 1);
+  addText('Brushwell POS\n\n\n');
+
+  // Cut
   addBytes(GS, 0x56, 0x41, 0);
 
   await writeEscPosChunked(buffer);

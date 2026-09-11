@@ -16,6 +16,8 @@ import {
 } from '../services/supabaseService';
 import RefundModal from './RefundModal';
 import ZReportModal from './ZReportModal';
+import { printBluetoothReport, isBluetoothSupported } from '../services/printerService';
+
 
 const DATE_RANGES = [
   { key: 'today', label: 'Today' },
@@ -68,6 +70,7 @@ export default function Reports({ session, settings }) {
   const [isRefundOpen, setIsRefundOpen] = useState(false);
   const [isZReportOpen, setIsZReportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isPrinting, setIsPrinting] = useState(false);
 
   // Admin order deletion state
   const isAdmin = session?.role === 'admin';
@@ -390,7 +393,102 @@ export default function Reports({ session, settings }) {
     }
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = async () => {
+    if (isPrinting) return;
+    setIsPrinting(true);
+    try {
+      // Build report rows based on active tab
+      let title = 'DAILY SALES REPORT';
+      const rows = [];
+      const sym = (settings?.currency_symbol === '¢' || settings?.currency_symbol === '₵' || !settings?.currency_symbol) ? 'GHc' : (settings?.currency_symbol || 'GHc');
+      const fmt = (n) => `${sym} ${Number(n || 0).toFixed(2)}`;
+
+      if (activeReport === 'daily') {
+        title = `DAILY REPORT - ${formattedDailyDate}`;
+        rows.push(
+          { label: 'Orders:', value: String(dailyOrders) },
+          { label: 'Items Sold:', value: String(dailyItemsSold) },
+          '---',
+          { label: 'Revenue:', value: fmt(dailyRevenue) },
+          '---',
+          { label: 'Cash:', value: fmt(dailyCash) },
+          { label: 'Card:', value: fmt(dailyCard) },
+          { label: 'Mobile Transfer:', value: fmt(dailyMobile) },
+          '---'
+        );
+        dailyBooksList.slice(0, 8).forEach(b => {
+          const name = (b.name || 'Item').substring(0, 14).padEnd(14, ' ');
+          rows.push({ label: name, value: `x${b.qty} ${fmt(b.revenue)}` });
+        });
+      } else if (activeReport === 'sales') {
+        const label = DATE_RANGES.find(r => r.key === dateRange)?.label || dateRange;
+        title = `SALES SUMMARY - ${label.toUpperCase()}`;
+        rows.push(
+          { label: 'Orders:', value: String(totalOrders) },
+          { label: 'Items Sold:', value: String(totalItems) },
+          { label: 'Avg Order:', value: fmt(avgOrder) },
+          '---',
+          { label: 'Total Revenue:', value: fmt(totalRevenue) },
+          '---'
+        );
+        Object.entries(paymentMethodMap).forEach(([m, v]) => {
+          rows.push({ label: `${m}:`, value: fmt(v) });
+        });
+        rows.push('---');
+        topBooks.forEach(b => {
+          const name = (b.name || 'Item').substring(0, 14).padEnd(14, ' ');
+          rows.push({ label: name, value: `x${b.qty}` });
+        });
+      } else if (activeReport === 'inventory') {
+        title = 'INVENTORY SNAPSHOT';
+        rows.push(
+          { label: 'Total Products:', value: String(allProducts.length) },
+          { label: 'Low Stock:', value: String(lowStock.length) },
+          { label: 'Out of Stock:', value: String(outOfStock.length) },
+          { label: 'In Stock:', value: String(goodStock.length) },
+          '---',
+          { label: 'Stock Value:', value: fmt(totalStockValue) },
+          { label: 'Potential Profit:', value: fmt(potentialProfit) },
+          '---'
+        );
+        catStock.forEach(([cat, v]) => {
+          const name = (cat || 'General').substring(0, 14).padEnd(14, ' ');
+          rows.push({ label: name, value: `${v.count} items` });
+        });
+      } else if (activeReport === 'borrowed') {
+        title = 'BORROWED BOOKS REPORT';
+        rows.push(
+          { label: 'Items Sold:', value: String(borrowedSalesData.totalQty) },
+          '---',
+          { label: 'Total Revenue:', value: fmt(borrowedSalesData.totalRevenue) },
+          { label: 'Supplier Payouts:', value: fmt(borrowedSalesData.totalPayout) },
+          { label: 'Unsettled:', value: fmt(borrowedSalesData.unsettledPayout) },
+          { label: 'Settled:', value: fmt(borrowedSalesData.settledPayout) },
+          { label: 'Net Profit:', value: fmt(borrowedSalesData.totalProfit) },
+          '---'
+        );
+        borrowedSalesData.supplierList.forEach(s => {
+          const name = (s.supplier || 'Supplier').substring(0, 14).padEnd(14, ' ');
+          rows.push({ label: name, value: fmt(s.unsettledPayout) });
+        });
+      }
+
+      if (isBluetoothSupported()) {
+        await printBluetoothReport(
+          { title, rows, generatedBy: session?.name || 'Staff' },
+          settings || {}
+        );
+      } else {
+        // Fallback for browsers without Web Bluetooth
+        window.print();
+      }
+    } catch (err) {
+      console.error('Report print error:', err);
+      alert('Print failed: ' + (err.message || 'Unknown error') + '\n\nMake sure your Bluetooth printer is paired and try again.');
+    } finally {
+      setIsPrinting(false);
+    }
+  };
 
   const formattedDailyDate = new Date(dailyDate + 'T00:00:00').toLocaleDateString('en-GB', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -418,8 +516,8 @@ export default function Reports({ session, settings }) {
           <button className="btn-primary" onClick={() => setIsZReportOpen(true)} style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem' }}>
             <FileSpreadsheet size={15} /> Z-Report
           </button>
-          <button className="btn-secondary" onClick={handlePrint} style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem' }}>
-            <Printer size={15} /> Print
+          <button className="btn-secondary" onClick={handlePrint} disabled={isPrinting} style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem', opacity: isPrinting ? 0.6 : 1 }}>
+            <Printer size={15} /> {isPrinting ? 'Printing...' : 'Print'}
           </button>
         </div>
       </div>
