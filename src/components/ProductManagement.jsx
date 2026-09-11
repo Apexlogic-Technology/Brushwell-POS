@@ -474,7 +474,16 @@ export default function ProductManagement({
 
       await saveProductToDB(payload);
       setIsModalOpen(false);
-      if (onRefreshProducts) await onRefreshProducts();
+      setToastMessage({
+        type: 'success',
+        text: `Product "${payload.product_name}" saved successfully!`
+      });
+      setTimeout(() => setToastMessage(null), 4000);
+      try {
+        if (onRefreshProducts) await onRefreshProducts();
+      } catch (refreshErr) {
+        console.warn('Background product refresh warning:', refreshErr);
+      }
     } catch (err) {
       alert('Error saving product: ' + err.message);
     } finally {

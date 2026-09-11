@@ -115,7 +115,12 @@ const generateUUID = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  return 'id-' + Date.now() + '-' + Math.floor(Math.random() * 1000000000);
+  // RFC4122 v4 compliant UUID generator for non-secure HTTP contexts
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 };
 
 export const saveProduct = async (productData) => {
@@ -123,21 +128,58 @@ export const saveProduct = async (productData) => {
   if (!client) throw new Error('Supabase not configured');
 
   const now = new Date().toISOString();
+  const rawId = (productData.id && typeof productData.id === 'string') ? productData.id.trim() : '';
+  const finalId = rawId || generateUUID();
+
+  // Whitelist only columns that exist in the Supabase 'products' table schema
   const payload = {
-    ...productData,
+    id: finalId,
+    product_name: String(productData.product_name || '').trim(),
+    barcode: String(productData.barcode || '').trim(),
+    category_id: productData.category_id || 'cat-1',
+    category_name: productData.category_name || 'General',
+    retail_price: parseFloat(productData.retail_price) || 0,
+    wholesale_price: parseFloat(productData.wholesale_price) || 0,
+    stock_quantity: parseInt(productData.stock_quantity, 10) || 0,
+    product_image: productData.product_image || '',
+    expiry_date: productData.expiry_date || '',
+    publisher: productData.publisher ? String(productData.publisher).trim() : '',
     updated_at: now,
     created_at: productData.created_at || now
   };
-  if (!payload.id) payload.id = generateUUID();
 
-  const { data, error } = await client
-    .from('products')
-    .upsert(payload, { onConflict: 'id' })
-    .select()
-    .single();
+  // Perform upsert with automatic retry on transient network/timeout errors
+  const maxAttempts = 3;
+  let lastError = null;
 
-  if (error) throw new Error(error.message);
-  return data;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const { data, error } = await client
+        .from('products')
+        .upsert(payload, { onConflict: 'id' })
+        .select();
+
+      if (error) {
+        lastError = new Error(error.message);
+        const isTransient = /failed to fetch|network|timeout|502|503|504|connection/i.test(error.message);
+        if (!isTransient || attempt === maxAttempts) {
+          throw lastError;
+        }
+      } else {
+        return (data && data.length > 0) ? data[0] : payload;
+      }
+    } catch (err) {
+      lastError = err;
+      const isTransient = /failed to fetch|network|timeout|502|503|504|connection/i.test(err?.message || '');
+      if (isTransient && attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, attempt * 350));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || new Error('Failed to save product');
 };
 
 export const deleteProduct = async (productId) => {

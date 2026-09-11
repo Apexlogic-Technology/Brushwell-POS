@@ -75,6 +75,7 @@ export default function SellingInterface({
   const [checkoutError, setCheckoutError] = useState('');
   const [visibleCount, setVisibleCount] = useState(40);
   const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const currencySymbol = '¢';
   const taxTypes = (settings?.tax_types && settings.tax_types.length > 0)
     ? settings.tax_types
