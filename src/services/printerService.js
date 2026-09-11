@@ -143,7 +143,7 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
   // Header Center
   addBytes(ESC, 0x61, 1);
   addBytes(ESC, 0x21, 0x20); // Double height/width
-  addText('Brushwell POS\n');
+  addText('Brushwell Books\n');
   addBytes(ESC, 0x21, 0x00); // Reset font
   if (settings.store_name && settings.store_name.trim() && settings.store_name.trim().toLowerCase() !== 'brushwell pos') {
     addText(`${settings.store_name.trim()}\n`);
@@ -163,7 +163,8 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
 
   const COLS = 32; // 58mm printer = 32 chars per line
   (order.items || []).forEach(item => {
-    const fullName = (item.product_name || 'Item').trim();
+    // Strip appended class/grade suffix e.g. " (Grade 3)" or " (Class 2A)" – display-only, not needed on receipt
+    const fullName = (item.product_name || 'Item').trim().replace(/\s*\([^)]{1,20}\)\s*$/, '').trim();
 
     // Word-wrap name to COLS chars
     const words = fullName.split(' ');
@@ -228,7 +229,7 @@ export const printBluetoothReceipt = async (order, settings = {}) => {
   addBytes(ESC, 0x61, 1);
   addText('--------------------------------\n');
   addText('Thank you for shopping with us!\n');
-  addText('Brushwell POS\n\n\n');
+  addText('Brushwell Books\n\n\n');
 
   // Paper Cut
   addBytes(GS, 0x56, 0x41, 0);
@@ -264,7 +265,7 @@ export const printBluetoothReport = async (report, settings = {}) => {
   // Header – centred
   addBytes(ESC, 0x61, 1);
   addBytes(ESC, 0x21, 0x20);
-  addText('Brushwell POS\n');
+  addText('Brushwell Books\n');
   addBytes(ESC, 0x21, 0x00);
   if (settings.store_name && settings.store_name.trim() &&
       settings.store_name.trim().toLowerCase() !== 'brushwell pos') {
@@ -293,7 +294,7 @@ export const printBluetoothReport = async (report, settings = {}) => {
 
   // Footer
   addBytes(ESC, 0x61, 1);
-  addText('Brushwell POS\n\n\n');
+  addText('Brushwell Books\n\n\n');
 
   // Cut
   addBytes(GS, 0x56, 0x41, 0);
