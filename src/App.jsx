@@ -18,6 +18,8 @@ import OutboundLoansModal from './components/OutboundLoansModal';
 import HeldOrdersDrawer from './components/HeldOrdersDrawer';
 import BarcodeDisambiguationModal from './components/BarcodeDisambiguationModal';
 import PublicReceiptViewer from './components/PublicReceiptViewer';
+import SuppliersTab from './components/SuppliersTab';
+import DebtorsTab from './components/DebtorsTab';
 
 import { fetchProducts, getSettings, fetchOutboundLoans } from './services/supabaseService';
 import { initHardwareBarcodeListener } from './services/barcodeScannerService';
@@ -37,7 +39,7 @@ const GH_BOOK_CATEGORIES = [
   { id: 'cat-gh-11', name: 'Stationery & School Supplies' }
 ];
 import { getSession, logout, updateSessionActivity, ROLES } from './services/authService';
-import { ShoppingBag, Package, BarChart2, Users, Settings, Clock, LogOut, Sun, Moon } from 'lucide-react';
+import { ShoppingBag, Package, BarChart2, Users, Settings, Clock, LogOut, Sun, Moon, Truck, UserX } from 'lucide-react';
 
 export default function App() {
   const [theme, setTheme] = useState(localStorage.getItem('brushwell_theme') || 'light');
@@ -183,7 +185,9 @@ export default function App() {
     { key: 'products', label: 'Products', icon: Package },
     ...(isAdmin ? [
       { key: 'reports', label: 'Reports', icon: BarChart2 },
-      { key: 'users', label: 'Users', icon: Users }
+      { key: 'users', label: 'Users', icon: Users },
+      { key: 'suppliers', label: 'Suppliers', icon: Truck },
+      { key: 'debtors', label: 'Debtors', icon: UserX }
     ] : [])
   ];
 
@@ -539,6 +543,12 @@ export default function App() {
         {activeTab === 'users' && isAdmin && (
           <UserManagement currentSession={session} />
         )}
+        {activeTab === 'suppliers' && isAdmin && (
+          <SuppliersTab session={session} />
+        )}
+        {activeTab === 'debtors' && isAdmin && (
+          <DebtorsTab session={session} />
+        )}
       </div>
 
       {/* Bottom Navigation (Mobile Only) */}
@@ -551,17 +561,27 @@ export default function App() {
               key={tab.key}
               className={`nav-item ${isActive ? 'active' : ''}`}
               onClick={() => setActiveTab(tab.key)}
+              style={{ minWidth: 0, padding: '0 2px' }}
             >
               <div style={{
                 background: isActive ? 'var(--primary-light)' : 'transparent',
-                padding: '0.3rem 0.7rem',
+                padding: '0.2rem 0.45rem',
                 borderRadius: 'var(--radius-md)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'background 0.2s'
               }}>
-                <Icon size={22} strokeWidth={isActive ? 2.5 : 1.8} />
+                <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8} />
               </div>
-              <span style={{ fontSize: '0.68rem', marginTop: '2px' }}>{tab.label}</span>
+              <span style={{
+                fontSize: '0.62rem',
+                marginTop: '1px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: '100%'
+              }}>
+                {tab.label}
+              </span>
             </button>
           );
         })}

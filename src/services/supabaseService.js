@@ -801,3 +801,224 @@ export const saveCustomPublishers = (publishers) => {
     console.error('saveCustomPublishers error:', err);
   }
 };
+
+// ─── Suppliers ────────────────────────────────────────────────────────────────
+
+export const fetchSuppliers = async () => {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from('suppliers')
+    .select('*')
+    .order('name', { ascending: true });
+  if (error) { console.error('fetchSuppliers error:', error.message); return []; }
+  return data || [];
+};
+
+export const saveSupplier = async (supplierData) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const now = new Date().toISOString();
+  const payload = {
+    id: supplierData.id || generateUUID(),
+    name: String(supplierData.name || '').trim(),
+    contact_person: String(supplierData.contact_person || '').trim(),
+    phone: String(supplierData.phone || '').trim(),
+    email: String(supplierData.email || '').trim(),
+    address: String(supplierData.address || '').trim(),
+    notes: String(supplierData.notes || '').trim(),
+    total_credit: parseFloat(supplierData.total_credit) || 0,
+    total_paid: parseFloat(supplierData.total_paid) || 0,
+    updated_at: now,
+    created_at: supplierData.created_at || now
+  };
+  const { data, error } = await client
+    .from('suppliers')
+    .upsert(payload, { onConflict: 'id' })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+};
+
+export const deleteSupplier = async (id) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const { error } = await client.from('suppliers').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+};
+
+// ─── Supplier Transactions ────────────────────────────────────────────────────
+
+export const fetchSupplierTransactions = async (supplierId) => {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from('supplier_transactions')
+    .select('*')
+    .eq('supplier_id', supplierId)
+    .order('created_at', { ascending: false });
+  if (error) { console.error('fetchSupplierTransactions error:', error.message); return []; }
+  return data || [];
+};
+
+export const addSupplierTransaction = async (txnData) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const payload = {
+    id: generateUUID(),
+    supplier_id: txnData.supplier_id,
+    type: txnData.type, // 'credit' | 'payment'
+    amount: parseFloat(txnData.amount) || 0,
+    description: String(txnData.description || '').trim(),
+    reference: String(txnData.reference || '').trim(),
+    invoice_image_url: txnData.invoice_image_url || '',
+    invoice_image_data: txnData.invoice_image_data || '',
+    created_by: txnData.created_by || 'Staff',
+    created_at: new Date().toISOString()
+  };
+  const { data, error } = await client
+    .from('supplier_transactions')
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+
+  // Update supplier totals
+  const { data: sup } = await client.from('suppliers').select('total_credit,total_paid').eq('id', txnData.supplier_id).single();
+  if (sup) {
+    const updates = { updated_at: new Date().toISOString() };
+    if (txnData.type === 'credit') updates.total_credit = (parseFloat(sup.total_credit) || 0) + payload.amount;
+    if (txnData.type === 'payment') updates.total_paid = (parseFloat(sup.total_paid) || 0) + payload.amount;
+    await client.from('suppliers').update(updates).eq('id', txnData.supplier_id);
+  }
+  return data;
+};
+
+export const deleteSupplierTransaction = async (txnId, supplierId) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  // Get txn first to reverse totals
+  const { data: txn } = await client.from('supplier_transactions').select('*').eq('id', txnId).single();
+  const { error } = await client.from('supplier_transactions').delete().eq('id', txnId);
+  if (error) throw new Error(error.message);
+  if (txn && supplierId) {
+    const { data: sup } = await client.from('suppliers').select('total_credit,total_paid').eq('id', supplierId).single();
+    if (sup) {
+      const updates = { updated_at: new Date().toISOString() };
+      if (txn.type === 'credit') updates.total_credit = Math.max(0, (parseFloat(sup.total_credit) || 0) - parseFloat(txn.amount || 0));
+      if (txn.type === 'payment') updates.total_paid = Math.max(0, (parseFloat(sup.total_paid) || 0) - parseFloat(txn.amount || 0));
+      await client.from('suppliers').update(updates).eq('id', supplierId);
+    }
+  }
+};
+
+// ─── Debtors ──────────────────────────────────────────────────────────────────
+
+export const fetchDebtors = async () => {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from('debtors')
+    .select('*')
+    .order('name', { ascending: true });
+  if (error) { console.error('fetchDebtors error:', error.message); return []; }
+  return data || [];
+};
+
+export const saveDebtor = async (debtorData) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const now = new Date().toISOString();
+  const payload = {
+    id: debtorData.id || generateUUID(),
+    name: String(debtorData.name || '').trim(),
+    phone: String(debtorData.phone || '').trim(),
+    email: String(debtorData.email || '').trim(),
+    address: String(debtorData.address || '').trim(),
+    school: String(debtorData.school || '').trim(),
+    notes: String(debtorData.notes || '').trim(),
+    total_debit: parseFloat(debtorData.total_debit) || 0,
+    total_paid: parseFloat(debtorData.total_paid) || 0,
+    updated_at: now,
+    created_at: debtorData.created_at || now
+  };
+  const { data, error } = await client
+    .from('debtors')
+    .upsert(payload, { onConflict: 'id' })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+};
+
+export const deleteDebtor = async (id) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const { error } = await client.from('debtors').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+};
+
+// ─── Debtor Transactions ──────────────────────────────────────────────────────
+
+export const fetchDebtorTransactions = async (debtorId) => {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from('debtor_transactions')
+    .select('*')
+    .eq('debtor_id', debtorId)
+    .order('created_at', { ascending: false });
+  if (error) { console.error('fetchDebtorTransactions error:', error.message); return []; }
+  return data || [];
+};
+
+export const addDebtorTransaction = async (txnData) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const payload = {
+    id: generateUUID(),
+    debtor_id: txnData.debtor_id,
+    type: txnData.type, // 'debit' | 'payment'
+    amount: parseFloat(txnData.amount) || 0,
+    description: String(txnData.description || '').trim(),
+    reference: String(txnData.reference || '').trim(),
+    invoice_image_url: txnData.invoice_image_url || '',
+    invoice_image_data: txnData.invoice_image_data || '',
+    created_by: txnData.created_by || 'Staff',
+    created_at: new Date().toISOString()
+  };
+  const { data, error } = await client
+    .from('debtor_transactions')
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+
+  // Update debtor totals
+  const { data: deb } = await client.from('debtors').select('total_debit,total_paid').eq('id', txnData.debtor_id).single();
+  if (deb) {
+    const updates = { updated_at: new Date().toISOString() };
+    if (txnData.type === 'debit') updates.total_debit = (parseFloat(deb.total_debit) || 0) + payload.amount;
+    if (txnData.type === 'payment') updates.total_paid = (parseFloat(deb.total_paid) || 0) + payload.amount;
+    await client.from('debtors').update(updates).eq('id', txnData.debtor_id);
+  }
+  return data;
+};
+
+export const deleteDebtorTransaction = async (txnId, debtorId) => {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase not configured');
+  const { data: txn } = await client.from('debtor_transactions').select('*').eq('id', txnId).single();
+  const { error } = await client.from('debtor_transactions').delete().eq('id', txnId);
+  if (error) throw new Error(error.message);
+  if (txn && debtorId) {
+    const { data: deb } = await client.from('debtors').select('total_debit,total_paid').eq('id', debtorId).single();
+    if (deb) {
+      const updates = { updated_at: new Date().toISOString() };
+      if (txn.type === 'debit') updates.total_debit = Math.max(0, (parseFloat(deb.total_debit) || 0) - parseFloat(txn.amount || 0));
+      if (txn.type === 'payment') updates.total_paid = Math.max(0, (parseFloat(deb.total_paid) || 0) - parseFloat(txn.amount || 0));
+      await client.from('debtors').update(updates).eq('id', debtorId);
+    }
+  }
+};
