@@ -15,7 +15,23 @@ const fmt = (n) => `¢${(parseFloat(n) || 0).toLocaleString('en-GH', { minimumFr
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-GH', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
 const EMPTY_DEBTOR = { name: '', phone: '', email: '', address: '', school: '', notes: '' };
-const EMPTY_TXN = { type: 'debit', amount: '', description: '', reference: '', invoice_image_data: '' };
+const EMPTY_TXN = { type: 'debit', amount: '', description: '', reference: '', invoice_images: [] };
+
+const parseImages = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data.filter(Boolean);
+  if (typeof data === 'string') {
+    const str = data.trim();
+    if (str.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(str);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      } catch (e) {}
+    }
+    if (str) return [str];
+  }
+  return [];
+};
 
 export default function DebtorsTab({ session }) {
   const [view, setView] = useState('list'); // 'list' | 'detail' | 'form'
@@ -31,9 +47,10 @@ export default function DebtorsTab({ session }) {
   const [isTxnOpen, setIsTxnOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
-  const [imageModal, setImageModal] = useState({ open: false, url: '', data: '' });
+  const [imageModal, setImageModal] = useState({ open: false, images: [], initialIndex: 0, title: '' });
   const [filter, setFilter] = useState('all'); // 'all' | 'outstanding' | 'settled'
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
 
   const loadDebtors = useCallback(async () => {
     setIsLoading(true);
@@ -141,12 +158,28 @@ export default function DebtorsTab({ session }) {
   };
 
   const handlePhotoCapture = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const compressed = await compressImage(file);
-    if (compressed) {
-      setTxnForm(f => ({ ...f, invoice_image_data: compressed }));
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const compressedList = [];
+    for (const f of files) {
+      const compressed = await compressImage(f);
+      if (compressed) compressedList.push(compressed);
     }
+    if (compressedList.length > 0) {
+      setTxnForm(f => ({
+        ...f,
+        invoice_images: [...(f.invoice_images || []), ...compressedList]
+      }));
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+  };
+
+  const removePhoto = (idx) => {
+    setTxnForm(f => ({
+      ...f,
+      invoice_images: (f.invoice_images || []).filter((_, i) => i !== idx)
+    }));
   };
 
   const handleAddTxn = async (e) => {
@@ -155,13 +188,15 @@ export default function DebtorsTab({ session }) {
     if (!txnForm.amount || parseFloat(txnForm.amount) <= 0) { setFormError('Enter a valid amount.'); return; }
     setIsSubmitting(true);
     try {
+      const images = txnForm.invoice_images || [];
+      const invoice_image_data = images.length === 0 ? '' : JSON.stringify(images);
       await addDebtorTransaction({
         debtor_id: selected.id,
         type: txnForm.type,
         amount: parseFloat(txnForm.amount),
         description: txnForm.description,
         reference: txnForm.reference,
-        invoice_image_data: txnForm.invoice_image_data,
+        invoice_image_data,
         created_by: session?.name || 'Staff'
       });
       setTxnForm(EMPTY_TXN);
@@ -484,21 +519,64 @@ export default function DebtorsTab({ session }) {
               <input value={txnForm.description} onChange={e => setTxnForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. BECE Pasco books — 3 copies" style={inputStyle} />
             </div>
 
+            {/* Evidence photos */}
             <div style={fieldGroup}>
-              <label style={labelStyle}>Evidence Photo (optional)</label>
+              <label style={labelStyle}>Evidence Photos / Receipts (optional)</label>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <input ref={fileInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhotoCapture} />
-                <button type="button" onClick={() => fileInputRef.current?.click()}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.85rem', borderRadius: '9px', border: '1.5px dashed var(--border-light)', background: 'var(--bg-app)', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
-                  <Camera size={15} /> Capture / Upload
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhotoCapture} />
+                <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handlePhotoCapture} />
+                <button type="button" onClick={() => cameraInputRef.current?.click()}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.85rem', borderRadius: '9px', border: '1.5px dashed var(--border-light)', background: 'var(--bg-app)', color: 'var(--text-main)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                  <Camera size={15} /> Take Photo
                 </button>
-                {txnForm.invoice_image_data && (
-                  <>
-                    <img src={txnForm.invoice_image_data} alt="preview" style={{ height: '44px', width: '44px', objectFit: 'cover', borderRadius: '8px', border: '2px solid hsl(265,83%,58%)', cursor: 'pointer' }} onClick={() => setImageModal({ open: true, url: '', data: txnForm.invoice_image_data })} />
-                    <button type="button" onClick={() => setTxnForm(f => ({ ...f, invoice_image_data: '' }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-rose)' }}><X size={16} /></button>
-                  </>
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.85rem', borderRadius: '9px', border: '1.5px dashed var(--border-light)', background: 'var(--bg-app)', color: 'var(--text-main)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                  <Image size={15} /> Upload Images
+                </button>
+                {(txnForm.invoice_images || []).length > 0 && (
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                    {txnForm.invoice_images.length} photo{txnForm.invoice_images.length > 1 ? 's' : ''} attached
+                  </span>
                 )}
               </div>
+
+              {/* Gallery thumbnails */}
+              {(txnForm.invoice_images || []).length > 0 && (
+                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
+                  {txnForm.invoice_images.map((img, idx) => (
+                    <div key={idx} style={{ position: 'relative', width: 56, height: 56 }}>
+                      <img
+                        src={img}
+                        alt={`thumb-${idx}`}
+                        onClick={() => setImageModal({ open: true, images: txnForm.invoice_images, initialIndex: idx, title: `Attached Photo ${idx + 1}` })}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid hsl(265,83%,58%)', cursor: 'pointer' }}
+                      />
+                      <span style={{
+                        position: 'absolute', bottom: 2, left: 2,
+                        background: 'rgba(0,0,0,0.7)', color: '#fff',
+                        fontSize: '0.6rem', fontWeight: 700,
+                        padding: '1px 4px', borderRadius: '4px'
+                      }}>
+                        #{idx + 1}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(idx)}
+                        style={{
+                          position: 'absolute', top: -5, right: -5,
+                          background: 'var(--accent-rose)', color: '#fff',
+                          border: 'none', borderRadius: '50%',
+                          width: 18, height: 18, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          padding: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <button type="submit" disabled={isSubmitting} style={{ ...primaryBtn, background: 'linear-gradient(135deg, hsl(265,83%,58%), hsl(348,83%,58%))', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -545,12 +623,25 @@ export default function DebtorsTab({ session }) {
                     {txn.created_by && <span>by {txn.created_by}</span>}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
-                  {(txn.invoice_image_url || txn.invoice_image_data) && (
-                    <button onClick={() => setImageModal({ open: true, url: txn.invoice_image_url, data: txn.invoice_image_data })} style={iconBtn} title="View Evidence">
-                      <Image size={15} />
-                    </button>
-                  )}
+                <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexShrink: 0 }}>
+                  {(() => {
+                    const imgs = parseImages(txn.invoice_image_data || txn.invoice_image_url);
+                    if (imgs.length === 0) return null;
+                    return (
+                      <button
+                        onClick={() => setImageModal({ open: true, images: imgs, initialIndex: 0, title: `${selected.name} — ${txn.reference || 'Evidence'}` })}
+                        style={{ ...iconBtn, padding: '0.35rem 0.55rem', gap: '0.3rem', display: 'flex', alignItems: 'center' }}
+                        title={`View ${imgs.length} Photo${imgs.length > 1 ? 's' : ''}`}
+                      >
+                        <Image size={15} />
+                        {imgs.length > 1 && (
+                          <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'hsl(265,83%,58%)' }}>
+                            {imgs.length}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })()}
                   <button onClick={() => handleDeleteTxn(txn.id)} style={{ ...iconBtn, color: 'var(--accent-rose)' }} title="Delete"><Trash2 size={15} /></button>
                 </div>
               </div>
@@ -561,10 +652,12 @@ export default function DebtorsTab({ session }) {
 
       <InvoiceImageModal
         isOpen={imageModal.open}
+        images={imageModal.images}
+        initialIndex={imageModal.initialIndex}
         imageUrl={imageModal.url}
         imageData={imageModal.data}
-        onClose={() => setImageModal({ open: false, url: '', data: '' })}
-        title="Transaction Evidence"
+        onClose={() => setImageModal({ open: false, images: [], initialIndex: 0, url: '', data: '', title: '' })}
+        title={imageModal.title || 'Debtor Evidence'}
       />
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
     </div>

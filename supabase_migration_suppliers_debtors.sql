@@ -77,7 +77,24 @@ ALTER TABLE public.supplier_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.debtors               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.debtor_transactions   ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow all" ON public.suppliers             FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all" ON public.suppliers;
+CREATE POLICY "Allow all" ON public.suppliers FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all" ON public.supplier_transactions;
 CREATE POLICY "Allow all" ON public.supplier_transactions FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all" ON public.debtors               FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all" ON public.debtor_transactions   FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all" ON public.debtors;
+CREATE POLICY "Allow all" ON public.debtors FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all" ON public.debtor_transactions;
+CREATE POLICY "Allow all" ON public.debtor_transactions FOR ALL USING (true) WITH CHECK (true);
+
+-- ─── ROLE PRIVILEGES (Fixes: permission denied for table) ─────────────────────
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+GRANT ALL ON TABLE public.suppliers             TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.supplier_transactions TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.debtors               TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.debtor_transactions   TO anon, authenticated, service_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
